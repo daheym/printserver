@@ -1,0 +1,115 @@
+#!/usr/bin/env python3
+"""
+CUPS Backend that always reports printers as available.
+
+This backend fools CUPS into always advertising printers as available,
+even when they're powered off. This is useful for Windows clients that
+should see printers as ready even when the power management system
+has turned them off.
+
+When no arguments are provided, it reports device information.
+When called with job arguments, it forwards the job to the real backend.
+"""
+
+import sys
+import os
+import subprocess
+import syslog
+
+# CUPS backend exit codes
+CUPS_BACKEND_OK = 0
+CUPS_BACKEND_FAILED = 1
+CUPS_BACKEND_AUTH_REQUIRED = 2
+CUPS_BACKEND_HOLD = 3
+CUPS_BACKEND_STOP = 4
+CUPS_BACKEND_CANCEL = 5
+
+# Original backend to forward jobs to
+ORIGINAL_BACKEND = "/usr/lib/cups/backend/usb"
+
+def log_message(message):
+    """Log message to syslog"""
+    syslog.syslog(f"always-available[{os.getpid()}]: {message}")
+
+def device_discovery():
+    """
+    Device discovery mode - called when CUPS wants to know about available devices.
+    Always report the printer as available.
+    """
+    try:
+        # Get the original device URI by calling the real backend
+        result = subprocess.run([ORIGINAL_BACKEND], capture_output=True, text=True, timeout=10)
+
+        if result.returncode == 0 and result.stdout.strip():
+            # Parse the original backend output and modify it to show as always available
+            lines = result.stdout.strip().split('\n')
+            for line in lines:
+                if line.startswith('direct usb://'):
+                    # Modify the line to use our backend but keep the device info
+                    parts = line.split()
+                    if len(parts) >= 4:
+                        device_uri = parts[1]
+                        # Replace usb:// with always-available://
+                        fake_uri = device_uri.replace('usb://', 'always-available://')
+                        # Keep the rest of the information but ensure it shows as available
+                        print(f"direct {fake_uri} {' '.join(parts[2:])}")
+                        log_message(f"Reporting device as always available: {fake_uri}")
+                else:
+                    # Pass through other lines unchanged
+                    print(line)
+        else:
+            log_message("No devices found from original backend")
+
+    except subprocess.TimeoutExpired:
+        log_message("Timeout calling original backend")
+        sys.exit(CUPS_BACKEND_FAILED)
+    except Exception as e:
+        log_message(f"Error in device discovery: {e}")
+        sys.exit(CUPS_BACKEND_FAILED)
+
+def handle_print_job():
+    """
+    Print job mode - forward the job to the original backend.
+    """
+    try:
+        # Extract the device URI from environment
+        device_uri = os.environ.get('DEVICE_URI', '')
+        if not device_uri:
+            log_message("No DEVICE_URI environment variable")
+            sys.exit(CUPS_BACKEND_FAILED)
+
+        # Convert our fake URI back to the real USB URI
+        real_uri = device_uri.replace('always-available://', 'usb://')
+
+        # Set the real device URI for the original backend
+        env = os.environ.copy()
+        env['DEVICE_URI'] = real_uri
+
+        log_message(f"Forwarding job to real backend: {real_uri}")
+
+        # Execute the original backend with the same arguments
+        result = subprocess.run([ORIGINAL_BACKEND] + sys.argv[1:], env=env)
+
+        # Return the same exit code as the original backend
+        sys.exit(result.returncode)
+
+    except Exception as e:
+        log_message(f"Error forwarding print job: {e}")
+        sys.exit(CUPS_BACKEND_FAILED)
+
+def main():
+    """Main entry point"""
+    # Open syslog
+    syslog.openlog("always-available", syslog.LOG_PID, syslog.LOG_LPR)
+
+    if len(sys.argv) == 1:
+        # Device discovery mode
+        device_discovery()
+    else:
+        # Print job mode
+        handle_print_job()
+
+    sys.exit(CUPS_BACKEND_OK)
+
+if __name__ == "__main__":
+    main()

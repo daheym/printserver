@@ -73,6 +73,27 @@ If sharing printers with Windows clients, configure Samba:
    sudo systemctl restart smbd
    ```
 
+### Always-Available CUPS Backend (for Windows Clients)
+To make printers appear always available to Windows clients (even when powered off), use the custom CUPS backend:
+
+1. Install the backend:
+   ```bash
+   sudo cp always-available-backend /usr/lib/cups/backend/always-available
+   sudo chmod +x /usr/lib/cups/backend/always-available
+   ```
+
+2. Update printer configuration to use the new backend:
+   ```bash
+   sudo lpadmin -p HP_LaserJet_CP1525N -v always-available://HP/LaserJet%20CP1525N?serial=00CNCF134031
+   ```
+
+3. Restart CUPS:
+   ```bash
+   sudo systemctl restart cups
+   ```
+
+**Note**: This backend forwards all print jobs to the original USB backend, ensuring compatibility while making printers appear always available to Windows clients.
+
 ### Tapo Devices
 - Tapo smart plugs must be installed and connected to the same network
 - Note the IP addresses of the plugs connected to printers
@@ -190,6 +211,7 @@ python scripts/tapo_test.py
 
 ## Scripts Overview
 
+- `always-available-backend`: Custom CUPS backend that makes printers appear always available to Windows clients
 - `scripts/printserver_cups_tapo.py`: Main service that monitors CUPS queues and controls plugs
 - `scripts/discover.py`: Discovers all Tapo devices on the network
 - `scripts/tapo_test.py`: Manual control script for testing individual plugs
