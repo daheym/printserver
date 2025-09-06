@@ -164,6 +164,13 @@ For automatic startup and management:
    sudo journalctl -u cups-tapo -f
    ```
 
+7. **Optional: Configure log retention** (logs are kept for 24 hours by default):
+   ```bash
+   sudo nano /etc/systemd/journald.conf
+   # Add: MaxRetentionSec=24h
+   sudo systemctl restart systemd-journald
+   ```
+
 ### Device Discovery
 Find Tapo devices on your network:
 ```bash
