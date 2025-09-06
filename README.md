@@ -138,6 +138,11 @@ For automatic startup and management:
    sudo cp cups-tapo.service /etc/systemd/system/
    ```
 
+   **Note**: The service file is configured with `After=network-online.target cups.service` to ensure it starts only after:
+   - The network is fully online and routable
+   - The CUPS printing service is running
+   This prevents connection errors during system boot.
+
 2. Update the environment variables in the service file with your actual Tapo credentials:
    ```bash
    sudo nano /etc/systemd/system/cups-tapo.service

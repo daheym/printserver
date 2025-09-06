@@ -1,6 +1,6 @@
 [Unit]
 Description=CUPS Tapo Printer Power Manager
-After=network.target cups.service
+After=network-online.target cups.service
 Requires=cups.service
 
 [Service]
