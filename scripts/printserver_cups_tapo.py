@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import asyncio
+import datetime
 import os
 import time
 import subprocess
@@ -19,7 +20,7 @@ TAPO_PASSWORD = os.environ.get('TAPO_PASSWORD', 'default_password')
 
 # Timing
 CHECK_INTERVAL = 10     # seconds between CUPS checks
-TURN_OFF_DELAY = 60     # seconds after last job before power off
+TURN_OFF_DELAY = 600     # seconds after last job before power off
 
 
 # ===== FUNCTIONS =====
@@ -31,22 +32,22 @@ def cups_queue_has_jobs(printer_name):
     return bool(result.stdout.strip())
 
 
-async def turn_on(ip):
+async def turn_on(ip, printer):
     plug = SmartPlug(ip, username=TAPO_EMAIL, password=TAPO_PASSWORD)
     await plug.update()
     if not plug.is_on:
         await plug.turn_on()
-        print(f"[+] Plug {ip} ON")
+        print(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] {printer}: Turning ON plug {ip}")
     if hasattr(plug, 'protocol') and hasattr(plug.protocol, 'close'):
         await plug.protocol.close()
 
 
-async def turn_off(ip):
+async def turn_off(ip, printer):
     plug = SmartPlug(ip, username=TAPO_EMAIL, password=TAPO_PASSWORD)
     await plug.update()
     if plug.is_on:
         await plug.turn_off()
-        print(f"[-] Plug {ip} OFF")
+        print(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] {printer}: Turning OFF plug {ip}")
     if hasattr(plug, 'protocol') and hasattr(plug.protocol, 'close'):
         await plug.protocol.close()
 
@@ -60,15 +61,16 @@ async def main():
         now = time.time()
         for printer, ip in PRINTERS.items():
             has_jobs = cups_queue_has_jobs(printer)
+            print(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] Checking {printer}: {'jobs present' if has_jobs else 'no jobs'}")
 
             if has_jobs and not plug_status[printer]:
-                await turn_on(ip)
+                await turn_on(ip, printer)
                 plug_status[printer] = True
                 last_job_time[printer] = now
 
             elif plug_status[printer] and not has_jobs:
                 if now - last_job_time[printer] > TURN_OFF_DELAY:
-                    await turn_off(ip)
+                    await turn_off(ip, printer)
                     plug_status[printer] = False
 
             elif has_jobs and plug_status[printer]:
