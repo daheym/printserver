@@ -42,12 +42,40 @@ async def turn_on(ip, printer):
         await plug.protocol.close()
 
 
+async def get_energy_data(plug):
+    """Get energy consumption data from plug"""
+    try:
+        if "Energy" in plug.modules:
+            energy_module = plug.modules["Energy"]
+            data = await energy_module.get_status()
+            current_w = getattr(data, 'power', 0.0)
+
+            total_kwh = 0.0
+            if hasattr(energy_module, 'consumption_today'):
+                today_kwh = energy_module.consumption_today
+                if today_kwh and today_kwh > 0:
+                    total_kwh = today_kwh
+            elif hasattr(energy_module, 'consumption_this_month'):
+                month_kwh = energy_module.consumption_this_month
+                if month_kwh and month_kwh > 0:
+                    total_kwh = month_kwh
+
+            return current_w, total_kwh
+    except Exception as e:
+        print(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] Error getting energy data: {e}")
+    return 0.0, 0.0
+
+
 async def turn_off(ip, printer):
     plug = await Discover.discover_single(ip, username=TAPO_EMAIL, password=TAPO_PASSWORD)
     await plug.update()
     if plug.is_on:
+        # Get energy data before turning off
+        current_w, total_kwh = await get_energy_data(plug)
+
         await plug.turn_off()
-        print(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] {printer}: Turning OFF plug {ip}")
+        energy_info = f" | Energy: {current_w:.2f} W | Total: {total_kwh:.3f} kWh" if total_kwh > 0 else ""
+        print(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] {printer}: Turning OFF plug {ip}{energy_info}")
     if hasattr(plug, 'protocol') and hasattr(plug.protocol, 'close'):
         await plug.protocol.close()
 
