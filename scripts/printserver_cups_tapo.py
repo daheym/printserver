@@ -4,13 +4,13 @@ import datetime
 import os
 import time
 import subprocess
-from kasa import SmartPlug
+from kasa import Discover
 
 # ===== CONFIGURATION =====
 # Map CUPS printer name -> Tapo plug IP
 PRINTERS = {
-    # "Lexmark_Optra": "192.168.1.151",
     "HP_LaserJet_CP1525N": "192.168.0.114",
+    # "Lexmark_Optra_N": "192.168.1.151",
     # "HP_Serial": "192.168.1.153"
 }
 
@@ -19,7 +19,7 @@ TAPO_EMAIL = os.environ.get('TAPO_EMAIL', 'default@example.com')
 TAPO_PASSWORD = os.environ.get('TAPO_PASSWORD', 'default_password')
 
 # Timing
-CHECK_INTERVAL = 10     # seconds between CUPS checks
+CHECK_INTERVAL = 30     # seconds between CUPS checks
 TURN_OFF_DELAY = 600     # seconds after last job before power off
 
 
@@ -33,7 +33,7 @@ def cups_queue_has_jobs(printer_name):
 
 
 async def turn_on(ip, printer):
-    plug = SmartPlug(ip, username=TAPO_EMAIL, password=TAPO_PASSWORD)
+    plug = await Discover.discover_single(ip, username=TAPO_EMAIL, password=TAPO_PASSWORD)
     await plug.update()
     if not plug.is_on:
         await plug.turn_on()
@@ -43,7 +43,7 @@ async def turn_on(ip, printer):
 
 
 async def turn_off(ip, printer):
-    plug = SmartPlug(ip, username=TAPO_EMAIL, password=TAPO_PASSWORD)
+    plug = await Discover.discover_single(ip, username=TAPO_EMAIL, password=TAPO_PASSWORD)
     await plug.update()
     if plug.is_on:
         await plug.turn_off()
@@ -54,8 +54,34 @@ async def turn_off(ip, printer):
 
 # ===== MAIN LOOP =====
 async def main():
-    plug_status = {printer: False for printer in PRINTERS}
-    last_job_time = {printer: 0 for printer in PRINTERS}
+    plug_status = {}
+    last_job_time = {}
+
+    # Initialize plug states
+    print(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] Initializing printer states...")
+    for printer, ip in PRINTERS.items():
+        try:
+            plug = await Discover.discover_single(ip, username=TAPO_EMAIL, password=TAPO_PASSWORD)
+            await plug.update()
+            is_on = plug.is_on
+            plug_status[printer] = is_on
+            has_jobs = cups_queue_has_jobs(printer)
+            if is_on:
+                if has_jobs:
+                    last_job_time[printer] = time.time()
+                    print(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] {printer}: ON (jobs present)")
+                else:
+                    last_job_time[printer] = time.time()  # Start countdown immediately
+                    print(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] {printer}: ON (no jobs, starting countdown)")
+            else:
+                last_job_time[printer] = 0
+                print(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] {printer}: OFF")
+            if hasattr(plug, 'protocol') and hasattr(plug.protocol, 'close'):
+                await plug.protocol.close()
+        except Exception as e:
+            print(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] Error initializing {printer}: {e}")
+            plug_status[printer] = False
+            last_job_time[printer] = 0
 
     while True:
         now = time.time()
@@ -69,7 +95,10 @@ async def main():
                 last_job_time[printer] = now
 
             elif plug_status[printer] and not has_jobs:
-                if now - last_job_time[printer] > TURN_OFF_DELAY:
+                remaining = TURN_OFF_DELAY - (now - last_job_time[printer])
+                if remaining > 0:
+                    print(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] {printer}: No jobs, turning off in {int(remaining)} seconds")
+                else:
                     await turn_off(ip, printer)
                     plug_status[printer] = False
 

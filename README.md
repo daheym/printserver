@@ -124,11 +124,45 @@ Adjust these values in `scripts/printserver_cups_tapo.py`:
 
 ## Usage
 
-### Main Service
+### Manual Execution
 Run the automated print server:
 ```bash
 python scripts/printserver_cups_tapo.py
 ```
+
+### Systemd Service (Recommended)
+For automatic startup and management:
+
+1. Copy the service file:
+   ```bash
+   sudo cp cups-tapo.service /etc/systemd/system/
+   ```
+
+2. Update the environment variables in the service file with your actual Tapo credentials:
+   ```bash
+   sudo nano /etc/systemd/system/cups-tapo.service
+   ```
+
+3. Reload systemd and enable the service:
+   ```bash
+   sudo systemctl daemon-reload
+   sudo systemctl enable cups-tapo
+   ```
+
+4. Start the service:
+   ```bash
+   sudo systemctl start cups-tapo
+   ```
+
+5. Check status:
+   ```bash
+   sudo systemctl status cups-tapo
+   ```
+
+6. View logs:
+   ```bash
+   sudo journalctl -u cups-tapo -f
+   ```
 
 ### Device Discovery
 Find Tapo devices on your network:
