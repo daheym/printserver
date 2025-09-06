@@ -72,6 +72,10 @@ def handle_print_job():
     Print job mode - forward the job to the original backend.
     """
     try:
+        # Log current user for debugging
+        current_user = os.getuid()
+        log_message(f"Backend running as UID: {current_user}")
+
         # Extract the device URI from environment
         device_uri = os.environ.get('DEVICE_URI', '')
         if not device_uri:
@@ -87,8 +91,14 @@ def handle_print_job():
 
         log_message(f"Forwarding job to real backend: {real_uri}")
 
-        # Execute the original backend with the same arguments
-        result = subprocess.run([ORIGINAL_BACKEND] + sys.argv[1:], env=env)
+        # Execute the original backend with stdin/stdout redirection
+        # Use sudo to ensure proper permissions for USB access
+        cmd = ["sudo", "-E", ORIGINAL_BACKEND] + sys.argv[1:]
+        result = subprocess.run(cmd,
+                              env=env,
+                              stdin=sys.stdin,
+                              stdout=sys.stdout,
+                              stderr=sys.stderr)
 
         # Return the same exit code as the original backend
         sys.exit(result.returncode)

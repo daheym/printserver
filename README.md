@@ -82,17 +82,37 @@ To make printers appear always available to Windows clients (even when powered o
    sudo chmod +x /usr/lib/cups/backend/always-available
    ```
 
-2. Update printer configuration to use the new backend:
+2. Configure sudo permissions for the CUPS lp user:
+   ```bash
+   echo "lp ALL=(ALL) NOPASSWD:SETENV: /usr/lib/cups/backend/usb" | sudo tee /etc/sudoers.d/cups-usb
+   ```
+
+3. Update printer configuration to use the new backend:
    ```bash
    sudo lpadmin -p HP_LaserJet_CP1525N -v always-available://HP/LaserJet%20CP1525N?serial=00CNCF134031
    ```
 
-3. Restart CUPS:
+4. Restart CUPS:
    ```bash
    sudo systemctl restart cups
    ```
 
 **Note**: This backend forwards all print jobs to the original USB backend, ensuring compatibility while making printers appear always available to Windows clients.
+
+#### Backend Modifications and Security
+The `always-available-backend` was modified to fix several issues:
+
+- **Fixed stdin/stdout redirection**: The backend now properly forwards stdin, stdout, and stderr to the USB backend using `subprocess.run()` with appropriate parameters
+- **Resolved permission issues**: CUPS backends run as the `lp` user, but USB devices require root access. The backend uses `sudo` to execute the USB backend with proper permissions
+- **Environment variable preservation**: Uses `sudo -E` with `SETENV` in sudoers to preserve the `DEVICE_URI` environment variable
+
+**Security Considerations**: Granting sudo permissions to the `lp` user is generally not recommended from a security perspective. However, in this specific case:
+- The permission is restricted to only the `/usr/lib/cups/backend/usb` command
+- The `lp` user already has limited privileges and is specifically designed for print operations
+- USB backend access is necessary for printer communication
+- The permission is equivalent to what CUPS would have if it ran backends as root
+
+If security is a major concern, consider running CUPS backends as root or implementing a more restricted USB access mechanism.
 
 ### Tapo Devices
 - Tapo smart plugs must be installed and connected to the same network
