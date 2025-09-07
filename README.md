@@ -18,7 +18,7 @@ CUPS (Common Unix Printing System) must be installed and configured for network 
    sudo apt-get install cups
    ```
 
-3. Modify `/etc/cups/cupsd.conf` to enable network access:
+3. Modify `/etc/cups/cupsd.conf` to enable network access and configure job management:
    ```conf
    # Listen on all interfaces
    Listen *:631
@@ -35,6 +35,12 @@ CUPS (Common Unix Printing System) must be installed and configured for network 
      Order allow,deny
      Allow all
    </Location>
+
+   # Set how long / how many jobs are stored
+   #MaxJobTime 86400
+   MaxJobs 25
+   PreserveJobHistory Yes
+   PreserveJobFiles Yes
    ```
 
 4. Restart CUPS service:

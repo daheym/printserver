@@ -10,8 +10,8 @@ from kasa import Discover
 # Map CUPS printer name -> Tapo plug IP
 PRINTERS = {
     "HP_LaserJet_CP1525N": "192.168.0.114",
-    # "Lexmark_Optra_N": "192.168.1.151",
-    # "HP_Serial": "192.168.1.153"
+    # "Lexmark_Optra_N": "192.168.0.115",
+    # "HP_Laerjet2100TN": "192.168.0.116"
 }
 
 # Credentials
