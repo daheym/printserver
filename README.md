@@ -160,8 +160,26 @@ PRINTERS = {
 
 ### Timing Configuration
 Adjust these values in `scripts/printserver_cups_tapo.py`:
-- `CHECK_INTERVAL`: Seconds between CUPS queue checks (default: 10)
-- `TURN_OFF_DELAY`: Seconds to wait after last job before powering off (default: 60)
+- `CHECK_INTERVAL`: Seconds between CUPS queue checks (default: 30)
+- `TURN_OFF_DELAY`: Seconds to wait after last job before powering off (default: 600)
+
+### Energy Monitoring
+The system includes built-in energy consumption tracking for Tapo plugs that support energy monitoring:
+
+- **Automatic Logging**: Energy data is logged when printers are powered off
+- **Real-time Power**: Current power consumption in watts
+- **Daily/Monthly Totals**: Accumulated energy usage in kWh
+- **Supported Devices**: Works with Tapo plugs that have energy monitoring capabilities
+
+Energy information appears in logs like:
+```
+[14:30:15] HP_LaserJet_CP1525N: Turning OFF plug 192.168.0.114 | Energy: 0.45 W | Total: 2.134 kWh
+```
+
+Test energy monitoring with:
+```bash
+python scripts/test_energy.py
+```
 
 ## Usage
 
@@ -206,8 +224,13 @@ For automatic startup and management:
    ```
 
 6. View logs:
-   ```bash
+   ```
    sudo journalctl -u cups-tapo -f
+   ```
+
+   To view all logs at once (without pager):
+   ```
+   sudo journalctl -u cups-tapo --no-pager
    ```
 
 7. **Optional: Configure log retention** (logs are kept for 24 hours by default):
@@ -229,12 +252,19 @@ Test individual plug control with user prompts:
 python scripts/tapo_test.py
 ```
 
+For automated testing without prompts:
+```bash
+python scripts/test_iotplug.py
+```
+
 ## Scripts Overview
 
 - `always-available-backend`: Custom CUPS backend that makes printers appear always available to Windows clients
 - `scripts/printserver_cups_tapo.py`: Main service that monitors CUPS queues and controls plugs
 - `scripts/discover.py`: Discovers all Tapo devices on the network
-- `scripts/tapo_test.py`: Manual control script for testing individual plugs
+- `scripts/tapo_test.py`: Manual control script for testing individual plugs with user prompts
+- `scripts/test_energy.py`: Tests energy monitoring capabilities of Tapo plugs
+- `scripts/test_iotplug.py`: Simple script to toggle plug state without prompts
 
 ## Troubleshooting
 
