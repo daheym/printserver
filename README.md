@@ -7,12 +7,18 @@ A Python-based service that automatically manages power for network printers usi
 ### CUPS Configuration
 CUPS (Common Unix Printing System) must be installed and configured for network printing.
 
-1. Install CUPS:
+1. Update package lists and upgrade system:
+   ```bash
+   sudo apt-get update
+   sudo apt-get upgrade
+   ```
+
+2. Install CUPS:
    ```bash
    sudo apt-get install cups
    ```
 
-2. Modify `/etc/cups/cupsd.conf` to enable network access:
+3. Modify `/etc/cups/cupsd.conf` to enable network access:
    ```conf
    # Listen on all interfaces
    Listen *:631
@@ -31,10 +37,20 @@ CUPS (Common Unix Printing System) must be installed and configured for network 
    </Location>
    ```
 
-3. Restart CUPS service:
+4. Restart CUPS service:
    ```bash
    sudo systemctl restart cups
    ```
+
+5. Add printers through the CUPS web interface:
+   - Open `https://[Raspi-IP]:631/` in your browser (accept the security warning for self-signed certificate)
+   - Click the "Administration" tab
+   - Click "Add Printer"
+   - Select your printer from the list (for USB printers, choose the USB connection; for network printers, choose the appropriate network protocol)
+   - Enter a name, description, and location for the printer
+   - Select the printer make and model from the database, or provide a PPD file if you have one
+   - Click "Add Printer" to complete the setup
+   - Test the printer by printing a test page from the printer's maintenance page
 
 ### Samba Configuration (for Windows Printer Sharing)
 If sharing printers with Windows clients, configure Samba:
@@ -89,8 +105,10 @@ To make printers appear always available to Windows clients (even when powered o
 
 3. Update printer configuration to use the new backend:
    ```bash
-   sudo lpadmin -p HP_LaserJet_CP1525N -v always-available://HP/LaserJet%20CP1525N?serial=00CNCF134031
+   sudo lpadmin -p [PRINTER_NAME] -v always-available://[PRINTER_NAME]
    ```
+
+   **Note**: Replace `[PRINTER_NAME]` with your actual printer name (as shown in CUPS). You can find the printer name using `lpstat -p`.
 
 4. Restart CUPS:
    ```bash
@@ -116,23 +134,28 @@ If security is a major concern, consider running CUPS backends as root or implem
 
 ### Tapo Devices
 - Tapo smart plugs must be installed and connected to the same network
-- Note the IP addresses of the plugs connected to printers
+- I used Tapo P110 smart plugs, but other models might work as well
+- Plug your printer into the plug
+- Note the IP addresse of the plug connected to printer
 - Create a Tapo account and note the email/password for API access
+- In your router settings, set a stable IP for your plug
 
 ### Python Dependencies
 - Python 3.7+
-- Required packages: `kasa` (for Tapo control)
+- Required packages: `python-kasa` (for Tapo control)
 
 ## Installation
 
-1. Clone this repository:
+1. On your Raspi, clone this repository:
    ```bash
-   git clone <repository-url>
+   git clone https://github.com/daheym/printserver
    cd printserver
    ```
 
-2. Install dependencies:
+2. Install dependencies into a virtual environment:
    ```bash
+   python -m venv venv
+   source venv/bin/activate
    pip install python-kasa
    ```
 
@@ -149,10 +172,10 @@ If security is a major concern, consider running CUPS backends as root or implem
 - `TAPO_PASSWORD`: Your Tapo account password
 
 ### Printer Mapping
-Edit `scripts/printserver_cups_tapo.py` and update the `PRINTERS` dictionary:
+Edit `scripts/printserver_cups_tapo.py` and update the `PRINTERS` dictionary with the names and IP adresses of your printers:
 ```python
 PRINTERS = {
-    "HP_LaserJet_CP1525N": "192.168.0.114",
+    "Printer_Name": "192.168.0.xyz",
     # Add more printers as needed
     # "Printer_Name": "Plug_IP"
 }
