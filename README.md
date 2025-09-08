@@ -307,6 +307,22 @@ python scripts/test_iotplug.py
 - Check network connectivity to plugs
 - Ensure Tapo credentials are correct
 
+### Logging Delays
+If you notice that log timestamps in `journalctl` are significantly behind real time (e.g., script timestamps show [12:06:32] but journalctl shows Sep 08 15:18:45), this is due to Python's output buffering when running as a systemd service.
+
+**Solution**: Add the following line to your `/etc/systemd/system/cups-tapo.service` file in the `[Service]` section:
+```ini
+Environment=PYTHONUNBUFFERED=1
+```
+
+Then reload and restart the service:
+```bash
+sudo systemctl daemon-reload
+sudo systemctl restart cups-tapo
+```
+
+This disables Python's stdout/stderr buffering, ensuring logs appear in real-time.
+
 ### Permission Issues
 - Run scripts with appropriate permissions for CUPS access
 - Ensure Samba has correct file permissions if using Windows sharing

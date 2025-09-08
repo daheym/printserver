@@ -11,7 +11,7 @@ from kasa import Discover
 PRINTERS = {
     "HP_LaserJet_CP1525N": "192.168.0.114",
     # "Lexmark_Optra_N": "192.168.0.115",
-    # "HP_Laerjet2100TN": "192.168.0.116"
+    # "HP_Laserjet2100TN": "192.168.0.116"
 }
 
 # Credentials
