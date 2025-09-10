@@ -2,21 +2,14 @@
 import asyncio
 import datetime
 import os
+import sys
 import time
 import subprocess
 from kasa import Discover
 
-# ===== CONFIGURATION =====
-# Map CUPS printer name -> Tapo plug IP
-PRINTERS = {
-    "HP_LaserJet_CP1525N": "192.168.0.114",
-    # "Lexmark_Optra_N": "192.168.0.115",
-    "HP_Laserjet_2100TN": "192.168.0.116"
-}
-
-# Credentials
-TAPO_EMAIL = os.environ.get('TAPO_EMAIL', 'default@example.com')
-TAPO_PASSWORD = os.environ.get('TAPO_PASSWORD', 'default_password')
+# Add parent directory to path for config import
+sys.path.append(os.path.dirname(os.path.dirname(__file__)))
+from config import PRINTERS, TAPO_EMAIL, TAPO_PASSWORD
 
 # Timing
 CHECK_INTERVAL = 30     # seconds between CUPS checks
