@@ -177,15 +177,46 @@ If security is a major concern, consider running CUPS backends as root or implem
 - `TAPO_EMAIL`: Your Tapo account email
 - `TAPO_PASSWORD`: Your Tapo account password
 
-### Printer Mapping
-Edit `scripts/printserver_cups_tapo.py` and update the `PRINTERS` dictionary with the names and IP adresses of your printers:
+### Centralized Configuration (config.py)
+The system uses a centralized configuration file `config.py` to manage printer mappings and credentials. This file is shared across all scripts for consistency.
+
+#### Configuration Structure
 ```python
+# config.py
+import os
+
+# Map CUPS printer name -> Tapo plug IP
 PRINTERS = {
-    "Printer_Name": "192.168.0.xyz",
+    "HP_LaserJet_CP1525N": "192.168.0.114",
+    "HP_Laserjet_2100TN": "192.168.0.116",
     # Add more printers as needed
     # "Printer_Name": "Plug_IP"
 }
+
+# Credentials from environment variables
+TAPO_EMAIL = os.environ.get('TAPO_EMAIL', 'default@example.com')
+TAPO_PASSWORD = os.environ.get('TAPO_PASSWORD', 'default_password')
 ```
+
+#### How to Configure
+1. Edit `config.py` in the root directory:
+   ```bash
+   nano config.py
+   ```
+
+2. Update the `PRINTERS` dictionary with your printer names and corresponding Tapo plug IPs:
+   - **Printer Name**: Must match the CUPS printer name exactly (use `lpstat -p` to verify)
+   - **IP Address**: The static IP of the Tapo smart plug connected to that printer
+
+3. Ensure your Tapo credentials are set in environment variables (see Installation section)
+
+#### Benefits
+- **Centralized Management**: All printer configurations in one place
+- **Consistency**: All scripts use the same configuration
+- **Easy Maintenance**: Add/remove printers by editing one file
+- **Scalability**: Simple to expand with additional printers
+
+**Note**: The `config.py` file is automatically imported by all scripts. No additional configuration steps are needed after editing this file.
 
 ### Timing Configuration
 Adjust these values in `scripts/printserver_cups_tapo.py`:
