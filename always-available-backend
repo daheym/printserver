@@ -15,6 +15,7 @@ import sys
 import os
 import subprocess
 import syslog
+import time
 
 # CUPS backend exit codes
 CUPS_BACKEND_OK = 0
@@ -27,9 +28,78 @@ CUPS_BACKEND_CANCEL = 5
 # Original backend to forward jobs to
 ORIGINAL_BACKEND = "/usr/lib/cups/backend/usb"
 
+# USB device detection settings
+USB_RESCAN_RETRIES = 3
+USB_RESCAN_DELAY = 2  # seconds to wait after rescan
+USB_DEVICE_CHECK_TIMEOUT = 5  # seconds timeout for device check
+
 def log_message(message):
     """Log message to syslog"""
     syslog.syslog(f"always-available[{os.getpid()}]: {message}")
+
+def check_usb_device_available(device_uri):
+    """
+    Check if the USB device is available by attempting to query it.
+    Returns True if device is available, False otherwise.
+    """
+    try:
+        # Try to call the USB backend to see if device is available
+        # Use a timeout to avoid hanging
+        env = os.environ.copy()
+        env['DEVICE_URI'] = device_uri
+
+        # Call backend with no arguments to check device discovery
+        result = subprocess.run(
+            [ORIGINAL_BACKEND],
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=USB_DEVICE_CHECK_TIMEOUT
+        )
+
+        # If the backend returns successfully and mentions the device, it's available
+        if result.returncode == 0 and device_uri.split('/')[-1].split('?')[0] in result.stdout:
+            return True
+
+        log_message(f"USB device check failed for {device_uri}: returncode={result.returncode}")
+        return False
+
+    except subprocess.TimeoutExpired:
+        log_message(f"USB device check timeout for {device_uri}")
+        return False
+    except Exception as e:
+        log_message(f"Error checking USB device {device_uri}: {e}")
+        return False
+
+def rescan_usb_ports():
+    """
+    Trigger a rescan of USB ports to detect newly connected devices.
+    """
+    try:
+        log_message("Triggering USB port rescan")
+        # Use udevadm to trigger USB subsystem rescan
+        result = subprocess.run(
+            ["sudo", "udevadm", "trigger", "--subsystem-match=usb"],
+            capture_output=True,
+            text=True,
+            timeout=10
+        )
+
+        if result.returncode == 0:
+            log_message("USB port rescan completed successfully")
+            # Wait a bit for devices to be recognized
+            time.sleep(USB_RESCAN_DELAY)
+            return True
+        else:
+            log_message(f"USB port rescan failed: {result.stderr}")
+            return False
+
+    except subprocess.TimeoutExpired:
+        log_message("USB port rescan timeout")
+        return False
+    except Exception as e:
+        log_message(f"Error during USB port rescan: {e}")
+        return False
 
 def device_discovery():
     """
@@ -69,7 +139,7 @@ def device_discovery():
 
 def handle_print_job():
     """
-    Print job mode - forward the job to the original backend.
+    Print job mode - forward the job to the original backend with USB device detection and rescan.
     """
     try:
         # Log current user for debugging
@@ -89,7 +159,37 @@ def handle_print_job():
         env = os.environ.copy()
         env['DEVICE_URI'] = real_uri
 
-        log_message(f"Forwarding job to real backend: {real_uri}")
+        log_message(f"Processing print job for: {real_uri}")
+
+        # Check if USB device is available, with retry logic
+        device_available = check_usb_device_available(real_uri)
+
+        if not device_available:
+            log_message(f"USB device not available, attempting rescan (up to {USB_RESCAN_RETRIES} retries)")
+
+            for attempt in range(USB_RESCAN_RETRIES):
+                log_message(f"Rescan attempt {attempt + 1}/{USB_RESCAN_RETRIES}")
+
+                # Trigger USB port rescan
+                if rescan_usb_ports():
+                    # Check again if device is now available
+                    device_available = check_usb_device_available(real_uri)
+                    if device_available:
+                        log_message(f"USB device found after rescan attempt {attempt + 1}")
+                        break
+                    else:
+                        log_message(f"USB device still not available after rescan attempt {attempt + 1}")
+                else:
+                    log_message(f"USB rescan failed on attempt {attempt + 1}")
+
+                # Wait a bit before next attempt (except on last attempt)
+                if attempt < USB_RESCAN_RETRIES - 1:
+                    time.sleep(1)
+
+        if not device_available:
+            log_message(f"USB device {real_uri} not available after all rescan attempts - job may fail")
+        else:
+            log_message(f"USB device {real_uri} is available - proceeding with print job")
 
         # Execute the original backend with stdin/stdout redirection
         # Use sudo to ensure proper permissions for USB access

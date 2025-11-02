@@ -96,7 +96,7 @@ If sharing printers with Windows clients, configure Samba:
    ```
 
 ### Always-Available CUPS Backend (for Windows Clients)
-To make printers appear always available to Windows clients (even when powered off), use the custom CUPS backend:
+To make printers appear always available to Windows clients (even when powered off), use the custom CUPS backend with automatic USB device detection:
 
 1. Install the backend:
    ```bash
@@ -104,9 +104,10 @@ To make printers appear always available to Windows clients (even when powered o
    sudo chmod +x /usr/lib/cups/backend/always-available
    ```
 
-2. Configure sudo permissions for the CUPS lp user:
+2. Configure sudo permissions for the CUPS lp user (includes USB rescan permissions):
    ```bash
    echo "lp ALL=(ALL) NOPASSWD:SETENV: /usr/lib/cups/backend/usb" | sudo tee /etc/sudoers.d/cups-usb
+   echo "lp ALL=(ALL) NOPASSWD: /usr/bin/udevadm trigger --subsystem-match=usb" | sudo tee -a /etc/sudoers.d/cups-usb
    ```
 
 3. Update printer configuration to use the new backend:
@@ -123,18 +124,35 @@ To make printers appear always available to Windows clients (even when powered o
 
 **Note**: This backend forwards all print jobs to the original USB backend, ensuring compatibility while making printers appear always available to Windows clients.
 
+#### USB Device Detection and Auto-Rescan
+The `always-available-backend` now includes automatic USB device detection and port scanning:
+
+- **Automatic Device Detection**: Before processing print jobs, the backend checks if the USB printer is available
+- **Port Rescan on Failure**: If the device isn't found, it automatically triggers a USB subsystem rescan using `udevadm trigger`
+- **Retry Logic**: Configurable retry attempts (default: 3) with delays between attempts
+- **Logging**: Detailed syslog logging for troubleshooting device detection issues
+
+**Configuration Options** (in `always-available-backend`):
+```python
+USB_RESCAN_RETRIES = 3          # Number of rescan attempts
+USB_RESCAN_DELAY = 2            # Seconds to wait after rescan
+USB_DEVICE_CHECK_TIMEOUT = 5    # Timeout for device availability checks
+```
+
 #### Backend Modifications and Security
-The `always-available-backend` was modified to fix several issues:
+The `always-available-backend` includes several enhancements:
 
 - **Fixed stdin/stdout redirection**: The backend now properly forwards stdin, stdout, and stderr to the USB backend using `subprocess.run()` with appropriate parameters
 - **Resolved permission issues**: CUPS backends run as the `lp` user, but USB devices require root access. The backend uses `sudo` to execute the USB backend with proper permissions
 - **Environment variable preservation**: Uses `sudo -E` with `SETENV` in sudoers to preserve the `DEVICE_URI` environment variable
+- **USB device auto-detection**: Automatically detects and rescans USB ports when devices aren't immediately available
+- **Enhanced logging**: Comprehensive syslog logging for troubleshooting
 
 **Security Considerations**: Granting sudo permissions to the `lp` user is generally not recommended from a security perspective. However, in this specific case:
-- The permission is restricted to only the `/usr/lib/cups/backend/usb` command
+- The permissions are restricted to only the necessary commands: `/usr/lib/cups/backend/usb` and `/usr/bin/udevadm trigger --subsystem=usb`
 - The `lp` user already has limited privileges and is specifically designed for print operations
-- USB backend access is necessary for printer communication
-- The permission is equivalent to what CUPS would have if it ran backends as root
+- USB backend access and device rescan are necessary for printer communication
+- The permissions are equivalent to what CUPS would have if it ran backends as root
 
 If security is a major concern, consider running CUPS backends as root or implementing a more restricted USB access mechanism.
 
