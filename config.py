@@ -4,9 +4,9 @@ import os
 
 # Map CUPS printer name -> Tapo plug IP
 PRINTERS = {
-    "HP_LaserJet_CP1525N": "192.168.0.114",
-    # "Lexmark_Optra_N": "192.168.0.115",
-    "HP_Laserjet_2100TN": "192.168.0.116"
+    "HP_LaserJet_CP1525N": "192.168.178.114",
+    # "Lexmark_Optra_N": "192.168.178.115",
+    "HP_Laserjet_2100TN": "192.168.178.116"
 }
 
 # Credentials from environment variables
