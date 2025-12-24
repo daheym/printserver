@@ -59,6 +59,19 @@ async def get_energy_data(plug):
     return 0.0, 0.0
 
 
+async def update_plug_statuses(plug_status):
+    """Update plug_status dict with actual plug states"""
+    for printer, ip in PRINTERS.items():
+        try:
+            plug = await Discover.discover_single(ip, username=TAPO_EMAIL, password=TAPO_PASSWORD)
+            await plug.update()
+            plug_status[printer] = plug.is_on
+            if hasattr(plug, 'protocol') and hasattr(plug.protocol, 'close'):
+                await plug.protocol.close()
+        except Exception as e:
+            print(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] Error updating status for {printer}: {e}")
+
+
 async def turn_off(ip, printer):
     plug = await Discover.discover_single(ip, username=TAPO_EMAIL, password=TAPO_PASSWORD)
     await plug.update()
@@ -105,6 +118,9 @@ async def main():
             last_job_time[printer] = 0
 
     while True:
+        # Update plug statuses with actual states
+        await update_plug_statuses(plug_status)
+
         now = time.time()
         for printer, ip in PRINTERS.items():
             has_jobs = cups_queue_has_jobs(printer)
