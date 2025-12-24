@@ -54,7 +54,8 @@ def check_usb_device_available(device_uri):
             env=env,
             capture_output=True,
             text=True,
-            timeout=USB_DEVICE_CHECK_TIMEOUT
+            timeout=USB_DEVICE_CHECK_TIMEOUT,
+            errors='replace'  # Handle binary data in output
         )
 
         # If the backend returns successfully and mentions the device, it's available
@@ -70,6 +71,64 @@ def check_usb_device_available(device_uri):
     except Exception as e:
         log_message(f"Error checking USB device {device_uri}: {e}")
         return False
+
+def discover_usb_device_by_model(expected_model):
+    """
+    Dynamically discover the correct USB device URI by matching on printer model.
+    This handles cases where USB devices get different device numbers on power cycles.
+
+    Args:
+        expected_model: The printer model to look for (e.g., "HP LaserJet 2100 Series")
+
+    Returns:
+        The correct USB device URI if found, None otherwise
+    """
+    try:
+        log_message(f"Attempting dynamic discovery for model: {expected_model}")
+
+        # Call the USB backend to get current device list
+        result = subprocess.run(
+            [ORIGINAL_BACKEND],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            errors='replace'  # Handle binary data in output
+        )
+
+        if result.returncode != 0:
+            log_message(f"USB backend discovery failed: {result.stderr}")
+            return None
+
+        # Parse the output to find matching devices
+        lines = result.stdout.strip().split('\n')
+        for line in lines:
+            if line.startswith('direct usb://'):
+                parts = line.split()
+                if len(parts) >= 4:
+                    device_uri = parts[1]
+                    device_model = parts[2].strip('"')
+
+                    # Check if this device matches our expected model
+                    # Use case-insensitive matching and partial matches
+                    if (expected_model.lower() in device_model.lower() or
+                        device_model.lower() in expected_model.lower()):
+                        log_message(f"Found matching device: {device_uri} -> {device_model}")
+                        return device_uri
+
+                    # Special handling for HP 2100TN which appears as "USB2.0-Print"
+                    if "2100" in expected_model and "USB2.0-Print" in device_uri:
+                        log_message(f"Found HP 2100TN device: {device_uri}")
+                        return device_uri
+
+        log_message(f"No matching USB device found for model: {expected_model}")
+        return None
+
+    except subprocess.TimeoutExpired:
+        log_message("USB device discovery timeout")
+        return None
+    except Exception as e:
+        log_message(f"Error during USB device discovery: {e}")
+        return None
 
 def rescan_usb_ports():
     """
@@ -108,7 +167,7 @@ def device_discovery():
     """
     try:
         # Get the original device URI by calling the real backend
-        result = subprocess.run([ORIGINAL_BACKEND], capture_output=True, text=True, timeout=10)
+        result = subprocess.run([ORIGINAL_BACKEND], capture_output=True, text=True, timeout=10, errors='replace')
 
         if result.returncode == 0 and result.stdout.strip():
             # Parse the original backend output and modify it to show as always available
@@ -140,6 +199,7 @@ def device_discovery():
 def handle_print_job():
     """
     Print job mode - forward the job to the original backend with USB device detection and rescan.
+    Now includes dynamic device discovery for printers that change URIs on power cycles.
     """
     try:
         # Log current user for debugging
@@ -155,27 +215,40 @@ def handle_print_job():
         # Convert our fake URI back to the real USB URI
         real_uri = device_uri.replace('always-available://', 'usb://')
 
-        # Set the real device URI for the original backend
-        env = os.environ.copy()
-        env['DEVICE_URI'] = real_uri
+        # Extract printer model from URI for dynamic discovery
+        # Handle different URI formats (with or without serial numbers)
+        uri_path = real_uri.replace('usb://', '')
+        if '?' in uri_path:
+            printer_model = uri_path.split('?')[0].replace('%20', ' ')
+        else:
+            printer_model = uri_path.replace('%20', ' ')
 
-        log_message(f"Processing print job for: {real_uri}")
+        log_message(f"Processing print job for: {real_uri} (model: {printer_model})")
 
         # Check if USB device is available, with retry logic
         device_available = check_usb_device_available(real_uri)
+        actual_uri = real_uri
 
         if not device_available:
-            log_message(f"USB device not available, attempting rescan (up to {USB_RESCAN_RETRIES} retries)")
+            log_message(f"USB device not available, attempting rescan and dynamic discovery")
 
             for attempt in range(USB_RESCAN_RETRIES):
-                log_message(f"Rescan attempt {attempt + 1}/{USB_RESCAN_RETRIES}")
+                log_message(f"Discovery attempt {attempt + 1}/{USB_RESCAN_RETRIES}")
 
                 # Trigger USB port rescan
                 if rescan_usb_ports():
-                    # Check again if device is now available
+                    # First try the original URI
                     device_available = check_usb_device_available(real_uri)
                     if device_available:
-                        log_message(f"USB device found after rescan attempt {attempt + 1}")
+                        log_message(f"USB device found at original URI after rescan attempt {attempt + 1}")
+                        break
+
+                    # If original URI not found, try dynamic discovery
+                    discovered_uri = discover_usb_device_by_model(printer_model)
+                    if discovered_uri:
+                        log_message(f"USB device discovered at new URI: {discovered_uri}")
+                        actual_uri = discovered_uri
+                        device_available = True
                         break
                     else:
                         log_message(f"USB device still not available after rescan attempt {attempt + 1}")
@@ -187,9 +260,13 @@ def handle_print_job():
                     time.sleep(1)
 
         if not device_available:
-            log_message(f"USB device {real_uri} not available after all rescan attempts - job may fail")
+            log_message(f"USB device not available after all discovery attempts - job may fail")
         else:
-            log_message(f"USB device {real_uri} is available - proceeding with print job")
+            log_message(f"USB device available at {actual_uri} - proceeding with print job")
+
+        # Set the actual device URI for the original backend
+        env = os.environ.copy()
+        env['DEVICE_URI'] = actual_uri
 
         # Execute the original backend with stdin/stdout redirection
         # Use sudo to ensure proper permissions for USB access

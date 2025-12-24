@@ -34,7 +34,8 @@ def check_usb_device_available(device_uri):
             env=env,
             capture_output=True,
             text=True,
-            timeout=5
+            timeout=5,
+            errors='replace'  # Handle binary data in output
         )
 
         # If the backend returns successfully and mentions the device, it's available
@@ -81,6 +82,64 @@ def rescan_usb_ports():
         log_message(f"Error during USB port rescan: {e}")
         return False
 
+def discover_usb_device_by_model(expected_model):
+    """
+    Dynamically discover the correct USB device URI by matching on printer model.
+    This handles cases where USB devices get different device numbers on power cycles.
+
+    Args:
+        expected_model: The printer model to look for (e.g., "HP LaserJet 2100 Series")
+
+    Returns:
+        The correct USB device URI if found, None otherwise
+    """
+    try:
+        log_message(f"Attempting dynamic discovery for model: {expected_model}")
+
+        # Call the USB backend to get current device list
+        result = subprocess.run(
+            ["/usr/lib/cups/backend/usb"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            errors='replace'  # Handle binary data in output
+        )
+
+        if result.returncode != 0:
+            log_message(f"USB backend discovery failed: {result.stderr}")
+            return None
+
+        # Parse the output to find matching devices
+        lines = result.stdout.strip().split('\n')
+        for line in lines:
+            if line.startswith('direct usb://'):
+                parts = line.split()
+                if len(parts) >= 4:
+                    device_uri = parts[1]
+                    device_model = parts[2].strip('"')
+
+                    # Check if this device matches our expected model
+                    # Use case-insensitive matching and partial matches
+                    if (expected_model.lower() in device_model.lower() or
+                        device_model.lower() in expected_model.lower()):
+                        log_message(f"Found matching device: {device_uri} -> {device_model}")
+                        return device_uri
+
+                    # Special handling for HP 2100TN which appears as "USB2.0-Print"
+                    if "2100" in expected_model and "USB2.0-Print" in device_uri:
+                        log_message(f"Found HP 2100TN device: {device_uri}")
+                        return device_uri
+
+        log_message(f"No matching USB device found for model: {expected_model}")
+        return None
+
+    except subprocess.TimeoutExpired:
+        log_message("USB device discovery timeout")
+        return None
+    except Exception as e:
+        log_message(f"Error during USB device discovery: {e}")
+        return None
+
 def test_device_detection():
     """Test USB device detection functionality"""
     print("=== Testing USB Device Detection ===")
@@ -106,6 +165,25 @@ def test_device_detection():
     else:
         print("Device was already available, no rescan needed")
 
+def test_dynamic_discovery():
+    """Test dynamic device discovery by model"""
+    print("\n=== Testing Dynamic Device Discovery ===")
+
+    # Test models that should be discovered
+    test_models = [
+        "HP LaserJet 2100 Series",
+        "HP LaserJet CP1525N",
+        "USB2.0-Print"  # Special case for HP 2100TN
+    ]
+
+    for model in test_models:
+        print(f"Testing discovery for model: {model}")
+        discovered_uri = discover_usb_device_by_model(model)
+        if discovered_uri:
+            print(f"✓ Found device: {discovered_uri}")
+        else:
+            print(f"✗ No device found for model: {model}")
+
 def test_backend_syntax():
     """Test that the backend script compiles without syntax errors"""
     print("\n=== Testing Backend Syntax ===")
@@ -128,6 +206,7 @@ if __name__ == "__main__":
 
     test_backend_syntax()
     test_device_detection()
+    test_dynamic_discovery()
 
     print("\n" + "=" * 40)
     print("Test completed. Check the output above for results.")

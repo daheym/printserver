@@ -118,6 +118,9 @@ async def main():
             last_job_time[printer] = 0
 
     while True:
+        # Store previous plug states to detect manual activations
+        previous_plug_status = plug_status.copy()
+
         # Update plug statuses with actual states
         await update_plug_statuses(plug_status)
 
@@ -132,12 +135,18 @@ async def main():
                 last_job_time[printer] = now
 
             elif plug_status[printer] and not has_jobs:
+                # Detect manual activation: plug was off, now on
+                if not previous_plug_status.get(printer, False) and plug_status[printer]:
+                    last_job_time[printer] = now
+                    print(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] {printer}: Manual activation detected, starting {TURN_OFF_DELAY}s countdown")
+
                 remaining = TURN_OFF_DELAY - (now - last_job_time[printer])
                 if remaining > 0:
                     print(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] {printer}: No jobs, turning off in {int(remaining)} seconds")
                 else:
                     await turn_off(ip, printer)
                     plug_status[printer] = False
+                    last_job_time[printer] = 0  # Reset for next activation
 
             elif has_jobs and plug_status[printer]:
                 last_job_time[printer] = now
