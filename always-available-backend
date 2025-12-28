@@ -49,8 +49,9 @@ def check_usb_device_available(device_uri):
         env['DEVICE_URI'] = device_uri
 
         # Call backend with no arguments to check device discovery
+        # Use sudo for proper USB access permissions
         result = subprocess.run(
-            [ORIGINAL_BACKEND],
+            ["sudo", ORIGINAL_BACKEND],
             env=env,
             capture_output=True,
             text=True,
@@ -87,8 +88,9 @@ def discover_usb_device_by_model(expected_model):
         log_message(f"Attempting dynamic discovery for model: {expected_model}")
 
         # Call the USB backend to get current device list
+        # Use sudo for proper USB access permissions
         result = subprocess.run(
-            [ORIGINAL_BACKEND],
+            ["sudo", ORIGINAL_BACKEND],
             capture_output=True,
             text=True,
             timeout=10,
@@ -167,7 +169,8 @@ def device_discovery():
     """
     try:
         # Get the original device URI by calling the real backend
-        result = subprocess.run([ORIGINAL_BACKEND], capture_output=True, text=True, timeout=10, errors='replace')
+        # Use sudo for proper USB access permissions
+        result = subprocess.run(["sudo", ORIGINAL_BACKEND], capture_output=True, text=True, timeout=10, errors='replace')
 
         if result.returncode == 0 and result.stdout.strip():
             # Parse the original backend output and modify it to show as always available
