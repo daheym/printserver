@@ -301,12 +301,21 @@ HTML_TEMPLATE = """
                 const countdown = data.countdown_remaining;
 
                 let statusText = '';
-                if (hasJobs) {
-                    statusText = '<span class="status-indicator status-jobs"></span>Jobs present';
-                } else if (isOn && countdown > 0) {
-                    statusText = `<span class="status-indicator status-on"></span>Turning off in ${Math.ceil(countdown)}s`;
-                } else if (isOn) {
-                    statusText = '<span class="status-indicator status-on"></span>On';
+                let countdownInfo = '';
+
+                if (isOn) {
+                    if (hasJobs) {
+                        statusText = '<span class="status-indicator status-jobs"></span>Active (jobs present)';
+                        countdownInfo = '<div class="countdown">Will shut down after jobs complete</div>';
+                    } else if (countdown > 0) {
+                        statusText = '<span class="status-indicator status-on"></span>On';
+                        const minutes = Math.floor(countdown / 60);
+                        const seconds = Math.floor(countdown % 60);
+                        countdownInfo = `<div class="countdown">Shuts down in ${minutes}:${seconds.toString().padStart(2, '0')}</div>`;
+                    } else {
+                        statusText = '<span class="status-indicator status-on"></span>On';
+                        countdownInfo = '<div class="countdown">Shutting down soon</div>';
+                    }
                 } else {
                     statusText = '<span class="status-indicator status-off"></span>Off';
                 }
@@ -315,6 +324,7 @@ HTML_TEMPLATE = """
                     <div class="printer-info">
                         <div class="printer-name">${printer}</div>
                         <div class="printer-status">${statusText}</div>
+                        ${countdownInfo}
                     </div>
                     <div class="controls">
                         <button class="btn-on" onclick="controlPlug('${printer}', 'on')" ${isOn ? 'disabled' : ''}>Turn On</button>
@@ -460,6 +470,52 @@ def get_pending_jobs():
 
     return jobs
 
+def get_printer_countdowns():
+    """Get countdown information directly from journalctl logs"""
+    countdowns = {}
+    try:
+        # Get recent logs from the cups-tapo service
+        result = subprocess.run(
+            ["sudo", "journalctl", "-u", "cups-tapo", "--no-pager", "-n", "100"],
+            capture_output=True, text=True
+        )
+
+        if result.stdout.strip():
+            lines = result.stdout.strip().split('\n')
+            # Process lines in reverse order (most recent first)
+            for line in reversed(lines):
+                # Look for countdown messages: "[time] printer: No jobs, turning off in X seconds"
+                if "No jobs, turning off in" in line and "seconds" in line:
+                    # Extract printer name and countdown
+                    parts = line.split()
+                    if len(parts) >= 3:
+                        # Find the printer name (usually after timestamp)
+                        timestamp_end = line.find(']')
+                        if timestamp_end > 0:
+                            after_timestamp = line[timestamp_end + 1:].strip()
+                            printer_end = after_timestamp.find(':')
+                            if printer_end > 0:
+                                printer_name = after_timestamp[:printer_end].strip()
+
+                                # Find the countdown value
+                                countdown_part = "turning off in"
+                                countdown_start = line.find(countdown_part)
+                                if countdown_start > 0:
+                                    after_countdown = line[countdown_start + len(countdown_part):]
+                                    seconds_part = after_countdown.split()[0]
+                                    try:
+                                        countdown_seconds = int(seconds_part)
+                                        # Only use this if we haven't seen this printer before (most recent)
+                                        if printer_name not in countdowns:
+                                            countdowns[printer_name] = countdown_seconds
+                                    except ValueError:
+                                        pass
+
+    except Exception as e:
+        print(f"Error getting countdowns from journalctl: {e}")
+
+    return countdowns
+
 async def get_plug_status(ip):
     """Get plug status asynchronously"""
     try:
@@ -503,18 +559,34 @@ def get_status():
         global_state['turn_off_delay'] = global_state['original_turn_off_delay']
         global_state['auto_off_disabled_until'] = 0
 
+    # Get countdowns directly from journalctl logs
+    journal_countdowns = get_printer_countdowns()
+
     printers_data = {}
 
     for printer, ip in PRINTERS.items():
         has_jobs = cups_queue_has_jobs(printer)
         plug_status = asyncio.run(get_plug_status(ip))
 
-        # Calculate countdown remaining
-        last_job = global_state['last_job_time'].get(printer, 0)
+        # Use countdown from journalctl if available, otherwise calculate
         countdown_remaining = 0
-        if plug_status and not has_jobs and last_job > 0:
-            elapsed = now - last_job
-            countdown_remaining = max(0, global_state['turn_off_delay'] - elapsed)
+        if plug_status:
+            if has_jobs:
+                # If printer has jobs, countdown starts after jobs are done
+                countdown_remaining = -1  # Special value to indicate active with jobs
+            elif printer in journal_countdowns:
+                # Use countdown directly from journalctl
+                countdown_remaining = journal_countdowns[printer]
+            else:
+                # Fallback: calculate using same logic as main service
+                last_job = global_state['last_job_time'].get(printer, 0)
+                if last_job > 0:
+                    remaining = global_state['turn_off_delay'] - (now - last_job)
+                    countdown_remaining = max(0, int(remaining))
+                else:
+                    # Just turned on, start countdown now
+                    global_state['last_job_time'][printer] = now
+                    countdown_remaining = global_state['turn_off_delay']
 
         printers_data[printer] = {
             'has_jobs': has_jobs,
