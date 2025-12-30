@@ -17,14 +17,43 @@ CHECK_INTERVAL = 30     # seconds between CUPS checks
 def get_turn_off_delay():
     """Read TURN_OFF_DELAY from config file dynamically"""
     try:
-        # Re-import config to get latest value
-        import importlib
-        import config
-        importlib.reload(config)
-        return config.TURN_OFF_DELAY
+        # Read directly from config file to get latest value
+        config_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'config.py')
+        with open(config_path, 'r') as f:
+            content = f.read()
+            # Simple parsing - look for the key = value line
+            for line in content.split('\n'):
+                line = line.strip()
+                if line.startswith('TURN_OFF_DELAY = '):
+                    value_str = line.split(' = ')[1]
+                    # Remove comments
+                    if '#' in value_str:
+                        value_str = value_str.split('#')[0].strip()
+                    # Try to evaluate as Python literal
+                    try:
+                        return eval(value_str)
+                    except:
+                        pass
+        return 600  # Fallback if parsing fails
     except Exception as e:
         print(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] Error reading TURN_OFF_DELAY from config: {e}")
         return 600  # Fallback to default 10 minutes
+
+def is_auto_off_disabled():
+    """Check if auto-off is currently disabled"""
+    try:
+        # Check if auto_off_state.txt exists and has valid disabled_until time
+        state_file = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'auto_off_state.txt')
+        if os.path.exists(state_file):
+            with open(state_file, 'r') as f:
+                data = f.read().strip().split(',')
+                if len(data) >= 2:
+                    disabled_until = float(data[1])
+                    return time.time() < disabled_until
+        return False
+    except Exception as e:
+        print(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] Error checking auto-off disabled state: {e}")
+        return False
 
 
 # ===== FUNCTIONS =====
@@ -146,6 +175,11 @@ async def main():
                 last_job_time[printer] = now
 
             elif plug_status[printer] and not has_jobs:
+                # Check if auto-off is disabled
+                if is_auto_off_disabled():
+                    print(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] {printer}: Auto-off is disabled, keeping printer ON")
+                    continue
+
                 # Get current turn off delay from config
                 current_turn_off_delay = get_turn_off_delay()
 

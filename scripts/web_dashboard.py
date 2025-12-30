@@ -77,6 +77,28 @@ global_state = {
     'last_update': 0
 }
 
+def load_auto_off_state():
+    """Load auto-off disabled state from file"""
+    try:
+        state_file = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'auto_off_state.txt')
+        if os.path.exists(state_file):
+            with open(state_file, 'r') as f:
+                data = f.read().strip().split(',')
+                if len(data) >= 2:
+                    global_state['original_turn_off_delay'] = int(data[0])
+                    global_state['auto_off_disabled_until'] = float(data[1])
+    except Exception as e:
+        print(f"Error loading auto-off state: {e}")
+
+def save_auto_off_state():
+    """Save auto-off disabled state to file"""
+    try:
+        state_file = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'auto_off_state.txt')
+        with open(state_file, 'w') as f:
+            f.write(f"{global_state['original_turn_off_delay']},{global_state['auto_off_disabled_until']}")
+    except Exception as e:
+        print(f"Error saving auto-off state: {e}")
+
 # HTML template
 HTML_TEMPLATE = """
 <!DOCTYPE html>
@@ -456,7 +478,7 @@ HTML_TEMPLATE = """
                     method: 'POST'
                 });
                 if (response.ok) {
-                    await fetchData(); // Refresh data after toggle
+                    location.reload(); // Reload the page immediately
                 } else {
                     alert('Failed to toggle auto-off');
                 }
@@ -714,30 +736,24 @@ def handle_config():
 @app.route('/api/disable_auto_off', methods=['POST'])
 def disable_auto_off():
     """Temporarily disable auto-off for 2 hours"""
-    # Read current delay from config
+    # Read current delay from config (keep it unchanged)
     current_delay = read_config_value('TURN_OFF_DELAY') or 600
 
     # Store original value in global state for restoration
     global_state['original_turn_off_delay'] = current_delay
 
-    # Write 2 hours (7200 seconds) to config
-    if write_config_value('TURN_OFF_DELAY', 7200):
-        now = time.time()
-        global_state['auto_off_disabled_until'] = now + 7200  # 2 hours from now
-        return jsonify({'success': True, 'disabled_until': global_state['auto_off_disabled_until']})
-    else:
-        return jsonify({'error': 'Failed to update config'}), 500
+    # Set disabled state without changing TURN_OFF_DELAY
+    now = time.time()
+    global_state['auto_off_disabled_until'] = now + 7200  # 2 hours from now
+    save_auto_off_state()  # Save state to file
+    return jsonify({'success': True, 'disabled_until': global_state['auto_off_disabled_until']})
 
 @app.route('/api/enable_auto_off', methods=['POST'])
 def enable_auto_off():
-    """Re-enable auto-off by restoring original delay"""
-    original_delay = global_state.get('original_turn_off_delay', 600)
-
-    if write_config_value('TURN_OFF_DELAY', original_delay):
-        global_state['auto_off_disabled_until'] = 0
-        return jsonify({'success': True})
-    else:
-        return jsonify({'error': 'Failed to update config'}), 500
+    """Re-enable auto-off (TURN_OFF_DELAY stays unchanged)"""
+    global_state['auto_off_disabled_until'] = 0
+    save_auto_off_state()  # Save state to file
+    return jsonify({'success': True})
 
 @app.route('/api/jobs')
 def get_jobs():
@@ -746,6 +762,9 @@ def get_jobs():
     return jsonify({'jobs': jobs})
 
 if __name__ == '__main__':
+    # Load auto-off state from file
+    load_auto_off_state()
+
     # Initialize global state
     for printer in PRINTERS:
         global_state['plug_status'][printer] = False
