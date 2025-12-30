@@ -12,3 +12,6 @@ PRINTERS = {
 # Credentials from environment variables
 TAPO_EMAIL = os.environ.get('TAPO_EMAIL', 'default@example.com')
 TAPO_PASSWORD = os.environ.get('TAPO_PASSWORD', 'default_password')
+
+# Dynamic configuration (can be modified by web dashboard)
+TURN_OFF_DELAY = 600

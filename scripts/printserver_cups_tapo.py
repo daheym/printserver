@@ -13,7 +13,18 @@ from config import PRINTERS, TAPO_EMAIL, TAPO_PASSWORD
 
 # Timing
 CHECK_INTERVAL = 30     # seconds between CUPS checks
-TURN_OFF_DELAY = 600     # seconds after last job before power off
+
+def get_turn_off_delay():
+    """Read TURN_OFF_DELAY from config file dynamically"""
+    try:
+        # Re-import config to get latest value
+        import importlib
+        import config
+        importlib.reload(config)
+        return config.TURN_OFF_DELAY
+    except Exception as e:
+        print(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] Error reading TURN_OFF_DELAY from config: {e}")
+        return 600  # Fallback to default 10 minutes
 
 
 # ===== FUNCTIONS =====
@@ -135,12 +146,15 @@ async def main():
                 last_job_time[printer] = now
 
             elif plug_status[printer] and not has_jobs:
+                # Get current turn off delay from config
+                current_turn_off_delay = get_turn_off_delay()
+
                 # Detect manual activation: plug was off, now on
                 if not previous_plug_status.get(printer, False) and plug_status[printer]:
                     last_job_time[printer] = now
-                    print(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] {printer}: Manual activation detected, starting {TURN_OFF_DELAY}s countdown")
+                    print(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] {printer}: Manual activation detected, starting {current_turn_off_delay}s countdown")
 
-                remaining = TURN_OFF_DELAY - (now - last_job_time[printer])
+                remaining = current_turn_off_delay - (now - last_job_time[printer])
                 if remaining > 0:
                     print(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] {printer}: No jobs, turning off in {int(remaining)} seconds")
                 else:

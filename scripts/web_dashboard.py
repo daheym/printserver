@@ -13,6 +13,58 @@ from kasa import Discover
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 from config import PRINTERS, TAPO_EMAIL, TAPO_PASSWORD
 
+def read_config_value(key):
+    """Read a value from config.py file"""
+    try:
+        with open(os.path.join(os.path.dirname(os.path.dirname(__file__)), 'config.py'), 'r') as f:
+            content = f.read()
+            # Simple parsing - look for the key = value line
+            for line in content.split('\n'):
+                line = line.strip()
+                if line.startswith(key + ' = '):
+                    value_str = line.split(' = ')[1]
+                    # Remove comments
+                    if '#' in value_str:
+                        value_str = value_str.split('#')[0].strip()
+                    # Try to evaluate as Python literal
+                    try:
+                        return eval(value_str)
+                    except:
+                        return value_str.strip()
+        return None
+    except Exception as e:
+        print(f"Error reading {key} from config: {e}")
+        return None
+
+def write_config_value(key, value):
+    """Write a value to config.py file"""
+    try:
+        config_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'config.py')
+        with open(config_path, 'r') as f:
+            content = f.read()
+
+        lines = content.split('\n')
+        found = False
+        for i, line in enumerate(lines):
+            line_strip = line.strip()
+            if line_strip.startswith(key + ' = '):
+                # Replace the line
+                lines[i] = f"{key} = {repr(value)}"
+                found = True
+                break
+
+        if not found:
+            # Add at the end
+            lines.append(f"{key} = {repr(value)}")
+
+        with open(config_path, 'w') as f:
+            f.write('\n'.join(lines))
+
+        return True
+    except Exception as e:
+        print(f"Error writing {key} to config: {e}")
+        return False
+
 app = Flask(__name__)
 
 # Global state (in a real app, use a database or proper state management)
@@ -554,10 +606,16 @@ def get_status():
     """Get current status of all printers"""
     now = time.time()
 
+    # Read current turn off delay from config
+    current_turn_off_delay = read_config_value('TURN_OFF_DELAY') or 600
+
     # Check if auto-off should be re-enabled
     if global_state['auto_off_disabled_until'] > 0 and now >= global_state['auto_off_disabled_until']:
-        global_state['turn_off_delay'] = global_state['original_turn_off_delay']
+        # Restore original delay
+        original_delay = global_state.get('original_turn_off_delay', 600)
+        write_config_value('TURN_OFF_DELAY', original_delay)
         global_state['auto_off_disabled_until'] = 0
+        current_turn_off_delay = original_delay
 
     # Get countdowns directly from journalctl logs
     journal_countdowns = get_printer_countdowns()
@@ -581,12 +639,12 @@ def get_status():
                 # Fallback: calculate using same logic as main service
                 last_job = global_state['last_job_time'].get(printer, 0)
                 if last_job > 0:
-                    remaining = global_state['turn_off_delay'] - (now - last_job)
+                    remaining = current_turn_off_delay - (now - last_job)
                     countdown_remaining = max(0, int(remaining))
                 else:
                     # Just turned on, start countdown now
                     global_state['last_job_time'][printer] = now
-                    countdown_remaining = global_state['turn_off_delay']
+                    countdown_remaining = current_turn_off_delay
 
         printers_data[printer] = {
             'has_jobs': has_jobs,
@@ -598,7 +656,7 @@ def get_status():
     return jsonify({
         'printers': printers_data,
         'config': {
-            'turn_off_delay': global_state['turn_off_delay'],
+            'turn_off_delay': current_turn_off_delay,
             'auto_off_disabled': now < global_state['auto_off_disabled_until']
         },
         'timestamp': now
@@ -632,8 +690,9 @@ def control_printer_plug(printer, action):
 def handle_config():
     """Get or update configuration"""
     if request.method == 'GET':
+        current_delay = read_config_value('TURN_OFF_DELAY') or 600
         return jsonify({
-            'turn_off_delay': global_state['turn_off_delay'],
+            'turn_off_delay': current_delay,
             'auto_off_disabled': time.time() < global_state['auto_off_disabled_until']
         })
     elif request.method == 'POST':
@@ -641,8 +700,10 @@ def handle_config():
         if 'turn_off_delay' in data:
             delay = int(data['turn_off_delay'])
             if 60 <= delay <= 3600:  # Between 1 minute and 1 hour
-                global_state['turn_off_delay'] = delay
-                return jsonify({'success': True})
+                if write_config_value('TURN_OFF_DELAY', delay):
+                    return jsonify({'success': True})
+                else:
+                    return jsonify({'error': 'Failed to update config'}), 500
             else:
                 return jsonify({'error': 'Invalid delay value'}), 400
         return jsonify({'error': 'Missing turn_off_delay'}), 400
@@ -650,21 +711,30 @@ def handle_config():
 @app.route('/api/disable_auto_off', methods=['POST'])
 def disable_auto_off():
     """Temporarily disable auto-off for 2 hours"""
-    now = time.time()
-    # Set turn_off_delay to 2 hours (7200 seconds)
-    global_state['original_turn_off_delay'] = global_state['turn_off_delay']
-    global_state['turn_off_delay'] = 7200
-    global_state['auto_off_disabled_until'] = now + 7200  # 2 hours from now
+    # Read current delay from config
+    current_delay = read_config_value('TURN_OFF_DELAY') or 600
 
-    return jsonify({'success': True, 'disabled_until': global_state['auto_off_disabled_until']})
+    # Store original value in global state for restoration
+    global_state['original_turn_off_delay'] = current_delay
+
+    # Write 2 hours (7200 seconds) to config
+    if write_config_value('TURN_OFF_DELAY', 7200):
+        now = time.time()
+        global_state['auto_off_disabled_until'] = now + 7200  # 2 hours from now
+        return jsonify({'success': True, 'disabled_until': global_state['auto_off_disabled_until']})
+    else:
+        return jsonify({'error': 'Failed to update config'}), 500
 
 @app.route('/api/enable_auto_off', methods=['POST'])
 def enable_auto_off():
     """Re-enable auto-off by restoring original delay"""
-    global_state['turn_off_delay'] = global_state['original_turn_off_delay']
-    global_state['auto_off_disabled_until'] = 0
+    original_delay = global_state.get('original_turn_off_delay', 600)
 
-    return jsonify({'success': True})
+    if write_config_value('TURN_OFF_DELAY', original_delay):
+        global_state['auto_off_disabled_until'] = 0
+        return jsonify({'success': True})
+    else:
+        return jsonify({'error': 'Failed to update config'}), 500
 
 @app.route('/api/jobs')
 def get_jobs():
