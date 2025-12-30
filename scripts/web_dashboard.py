@@ -538,30 +538,33 @@ def get_printer_countdowns():
             for line in reversed(lines):
                 # Look for countdown messages: "[time] printer: No jobs, turning off in X seconds"
                 if "No jobs, turning off in" in line and "seconds" in line:
-                    # Extract printer name and countdown
-                    parts = line.split()
-                    if len(parts) >= 3:
-                        # Find the printer name (usually after timestamp)
-                        timestamp_end = line.find(']')
-                        if timestamp_end > 0:
-                            after_timestamp = line[timestamp_end + 1:].strip()
-                            printer_end = after_timestamp.find(':')
-                            if printer_end > 0:
-                                printer_name = after_timestamp[:printer_end].strip()
+                    # Parse the log format: "Dec 30 11:57:02 raspberrypi python3[282251]: [11:57:02] HP_Laserjet_2100TN: No jobs, turning off in 113 seconds"
+                    # Find the second timestamp bracket
+                    first_bracket_end = line.find(']')
+                    if first_bracket_end > 0:
+                        second_bracket_start = line.find('[', first_bracket_end)
+                        if second_bracket_start > 0:
+                            second_bracket_end = line.find(']', second_bracket_start)
+                            if second_bracket_end > 0:
+                                after_second_timestamp = line[second_bracket_end + 1:].strip()
+                                # Now find the printer name before the first colon
+                                colon_pos = after_second_timestamp.find(':')
+                                if colon_pos > 0:
+                                    printer_name = after_second_timestamp[:colon_pos].strip()
 
-                                # Find the countdown value
-                                countdown_part = "turning off in"
-                                countdown_start = line.find(countdown_part)
-                                if countdown_start > 0:
-                                    after_countdown = line[countdown_start + len(countdown_part):]
-                                    seconds_part = after_countdown.split()[0]
-                                    try:
-                                        countdown_seconds = int(seconds_part)
-                                        # Only use this if we haven't seen this printer before (most recent)
-                                        if printer_name not in countdowns:
-                                            countdowns[printer_name] = countdown_seconds
-                                    except ValueError:
-                                        pass
+                                    # Find the countdown value
+                                    countdown_part = "turning off in"
+                                    countdown_start = line.find(countdown_part)
+                                    if countdown_start > 0:
+                                        after_countdown = line[countdown_start + len(countdown_part):]
+                                        seconds_part = after_countdown.split()[0]
+                                        try:
+                                            countdown_seconds = int(seconds_part)
+                                            # Only use this if we haven't seen this printer before (most recent)
+                                            if printer_name not in countdowns:
+                                                countdowns[printer_name] = countdown_seconds
+                                        except ValueError:
+                                            pass
 
     except Exception as e:
         print(f"Error getting countdowns from journalctl: {e}")
