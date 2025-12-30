@@ -2,9 +2,55 @@
 
 A Python-based service that automatically manages power for network printers using CUPS print queues and Tapo smart plugs. The system monitors printer job queues and turns printers on when jobs are present, then powers them off after a configurable delay when no jobs remain.
 
+## How It Works
+
+1. **Print Job Detection**: Monitors CUPS print queues for new jobs
+2. **Smart Power Management**: Automatically powers on printers when jobs are queued
+3. **Energy Saving**: Powers off printers after a configurable delay when queues are empty
+4. **USB Device Handling**: Includes intelligent USB device detection and port scanning for reliable printing
+5. **Windows Compatibility**: Custom CUPS backend makes printers appear always available to Windows clients
+6. **Energy Monitoring**: Tracks power consumption for supported Tapo plugs
+
+## Quick Start
+
+```bash
+git clone https://github.com/daheym/printserver
+cd printserver
+./install.sh
+```
+
+That's it! The automated script handles everything. Then just configure your printers and plugs in `config.py`.
+
+## Supported Hardware
+
+### Tested Printers
+- HP LaserJet CP1525N
+- HP LaserJet 2100TN
+- Most USB and network printers (via CUPS)
+
+### Tapo Smart Plugs
+- Tapo P110 (recommended, includes energy monitoring)
+- Other Tapo smart plugs with power switching capability
+
+### Operating Systems
+- Ubuntu 18.04+
+- Debian 10+
+- Raspberry Pi OS
+- Other Debian-based Linux distributions
+
 ## Prerequisites
 
-### CUPS Configuration
+### Quick Setup Requirements
+- **Hardware**: Printers (USB/network) + Tapo smart plugs (one per printer)
+- **Software**: Linux (Ubuntu/Debian), Python 3.7+, Tapo account with static IPs
+- **Network**: All devices on same network with static IP assignments
+
+**For automated installation**: Just run `./install.sh` - it handles everything below automatically.
+
+### Detailed Manual Setup (Reference)
+If you need to set up manually or understand what the automated script does, see below:
+
+#### CUPS Configuration
 CUPS (Common Unix Printing System) must be installed and configured for network printing.
 
 1. Update package lists and upgrade system:
@@ -170,20 +216,46 @@ If security is a major concern, consider running CUPS backends as root or implem
 
 ## Installation
 
-1. On your Raspi, clone this repository:
+### Automated Installation (Recommended)
+
+1. Clone the repository:
    ```bash
    git clone https://github.com/daheym/printserver
    cd printserver
    ```
 
-2. Install dependencies into a virtual environment:
+2. Run the automated installation script:
    ```bash
-   python -m venv venv
-   source venv/bin/activate
-   pip install python-kasa
+   ./install.sh
    ```
 
-3. Set environment variables for Tapo credentials. You can include these lines in your `~/.bashrc`:
+   The script will:
+   - Install and configure CUPS
+   - Set up Samba (optional)
+   - Install the custom CUPS backend with USB scanning
+   - Create a Python virtual environment
+   - Install dependencies
+   - Configure environment variables
+   - Set up the systemd service
+
+### Manual Installation (Advanced Users)
+
+If you prefer manual installation, follow these steps:
+
+1. Install system dependencies:
+   ```bash
+   sudo apt-get update
+   sudo apt-get install cups samba python3 python3-pip python3-venv
+   ```
+
+2. Set up Python environment:
+   ```bash
+   python3 -m venv venv
+   source venv/bin/activate
+   pip install -r requirements.txt
+   ```
+
+3. Configure environment variables:
    ```bash
    export TAPO_EMAIL="your-tapo-email@example.com"
    export TAPO_PASSWORD="your-tapo-password"
@@ -335,9 +407,16 @@ For automated testing without prompts:
 python scripts/test_iotplug.py
 ```
 
-## Scripts Overview
+## Files Overview
 
+### Core Files
+- `install.sh`: **NEW** - Automated installation script that sets up the entire system
+- `requirements.txt`: **NEW** - Python dependencies specification
 - `always-available-backend`: Custom CUPS backend that makes printers appear always available to Windows clients
+- `cups-tapo.service`: Systemd service configuration for automatic startup
+- `config.py`: Centralized configuration for printer mappings and credentials
+
+### Scripts
 - `scripts/printserver_cups_tapo.py`: Main service that monitors CUPS queues and controls plugs
 - `scripts/discover.py`: Discovers all Tapo devices on the network
 - `scripts/tapo_test.py`: Manual control script for testing individual plugs with user prompts
@@ -375,6 +454,51 @@ This disables Python's stdout/stderr buffering, ensuring logs appear in real-tim
 ### Permission Issues
 - Run scripts with appropriate permissions for CUPS access
 - Ensure Samba has correct file permissions if using Windows sharing
+
+## FAQ
+
+### Can I use this with network printers (not USB)?
+Yes! The system works with any printer supported by CUPS, including network printers. Just add them through the CUPS web interface and configure the printer-to-plug mapping in `config.py`.
+
+### What if my printer changes USB ports?
+The custom CUPS backend includes intelligent USB device detection that automatically finds printers even when they connect to different USB ports after power cycles.
+
+### Can I monitor energy usage?
+Yes, if you use Tapo P110 plugs (or other energy-monitoring models), the system automatically logs power consumption data when printers are turned off.
+
+### How do I add more printers?
+1. Add the printer in CUPS web interface
+2. Plug the printer into a Tapo smart plug
+3. Set a static IP for the plug in your router
+4. Add the mapping to `config.py`: `"Printer_Name": "192.168.1.100"`
+
+### Is this secure?
+The system uses restricted sudo permissions only for necessary USB operations. The CUPS `lp` user gets minimal permissions required for printer communication. For high-security environments, consider running CUPS backends as root.
+
+### What if the installation script fails?
+You can still use the manual installation instructions provided in the "Detailed Manual Setup" section. The script is just a convenience wrapper around those steps.
+
+### Can I run this on a Raspberry Pi?
+Yes! This was designed for Raspberry Pi systems. Use Raspberry Pi OS (Debian-based) and follow the automated installation.
+
+### How do I backup my configuration?
+Just backup the `config.py` file and your environment variables. The installation script handles the rest.
+
+## Recent Changes
+
+- ✅ **Automated Installation**: New `install.sh` script for one-command setup
+- ✅ **USB Device Detection**: Enhanced backend with automatic port scanning and device discovery
+- ✅ **Python Dependencies**: Centralized `requirements.txt` for easy dependency management
+- ✅ **Documentation**: Improved README with quick start guide and hardware compatibility
+
+## Contributing
+
+Contributions are welcome! Please:
+
+1. Test your changes thoroughly
+2. Update documentation as needed
+3. Follow the existing code style
+4. Add tests for new features
 
 ## License
 

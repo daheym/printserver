@@ -1,5 +1,14 @@
 # Printserver Enhancement ToDo List
 
+## ✅ Recently Completed
+
+### Installation & Documentation (Phase 0)
+- [x] Create automated installation script (`install.sh`)
+- [x] Create Python requirements file (`requirements.txt`)
+- [x] Update README with quick start guide and comprehensive documentation
+- [x] Add FAQ, supported hardware, and troubleshooting sections
+- [x] Enhance USB device detection and port scanning in backend
+
 ## 🔝 High Priority Features
 
 ### 1. Web Dashboard & Monitoring Interface
@@ -78,10 +87,11 @@
 
 ## Implementation Priority
 
-1. **Phase 1 (Quick Wins)**: Enhanced logging, status page, config validation
-2. **Phase 2 (Core Features)**: Web dashboard, energy analytics, alerts
-3. **Phase 3 (Advanced)**: Smart scheduling, integrations, failover
-4. **Phase 4 (Enterprise)**: Multi-printer management, advanced reporting
+1. **Phase 0 (Complete)**: Installation automation, documentation, USB improvements ✅
+2. **Phase 1 (Quick Wins)**: Enhanced logging, status page, config validation
+3. **Phase 2 (Core Features)**: Web dashboard, energy analytics, alerts
+4. **Phase 3 (Advanced)**: Smart scheduling, integrations, failover
+5. **Phase 4 (Enterprise)**: Multi-printer management, advanced reporting
 
 ## Notes
 - Start with Web Dashboard for immediate monitoring value
