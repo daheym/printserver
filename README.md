@@ -333,6 +333,21 @@ python scripts/test_energy.py
 
 ## Usage
 
+### Web Dashboard
+The web dashboard provides a user-friendly interface to monitor and control your print server:
+
+```bash
+python scripts/web_dashboard.py
+```
+
+Then open `http://localhost:5000` in your browser.
+
+**Features:**
+- **Monitor Print Jobs**: Real-time status of all configured printers
+- **Manual Plug Control**: Turn printers on/off manually
+- **Countdown Timer**: Adjust the auto-shutoff delay (1-60 minutes)
+- **Temporary Override**: Disable auto-shutoff for 2 hours (automatically reverts)
+
 ### Manual Execution
 Run the automated print server:
 ```bash
