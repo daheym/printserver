@@ -344,6 +344,7 @@ Then open `http://localhost:5000` in your browser.
 
 **Features:**
 - **Monitor Print Jobs**: Real-time status of all configured printers
+- **View Pending Jobs**: Detailed list of all queued print jobs with user and file information
 - **Manual Plug Control**: Turn printers on/off manually
 - **Countdown Timer**: Adjust the auto-shutoff delay (1-60 minutes)
 - **Temporary Override**: Disable auto-shutoff for 2 hours (automatically reverts)

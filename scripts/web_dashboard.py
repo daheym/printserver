@@ -158,6 +158,47 @@ HTML_TEMPLATE = """
             font-size: 14px;
             margin-top: 10px;
         }
+        .jobs-section {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px 0;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .jobs-section h2 {
+            margin-top: 0;
+            color: #333;
+        }
+        .no-jobs {
+            text-align: center;
+            color: #666;
+            font-style: italic;
+            padding: 20px;
+        }
+        .job-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px;
+            border-bottom: 1px solid #eee;
+        }
+        .job-item:last-child {
+            border-bottom: none;
+        }
+        .job-info {
+            flex: 1;
+        }
+        .job-printer {
+            font-weight: bold;
+            color: #2196F3;
+        }
+        .job-details {
+            color: #666;
+            font-size: 14px;
+        }
+        .job-user {
+            font-weight: bold;
+        }
     </style>
 </head>
 <body>
@@ -170,6 +211,13 @@ HTML_TEMPLATE = """
 
     <div id="printers-container">
         <!-- Printer cards will be inserted here -->
+    </div>
+
+    <div class="jobs-section">
+        <h2>Pending Print Jobs</h2>
+        <div id="jobs-container">
+            <!-- Job items will be inserted here -->
+        </div>
     </div>
 
     <div class="config-section">
@@ -195,11 +243,19 @@ HTML_TEMPLATE = """
 
     <script>
         let currentData = {};
+        let currentJobs = [];
 
         async function fetchData() {
             try {
-                const response = await fetch('/api/status');
-                currentData = await response.json();
+                const [statusResponse, jobsResponse] = await Promise.all([
+                    fetch('/api/status'),
+                    fetch('/api/jobs')
+                ]);
+
+                currentData = await statusResponse.json();
+                const jobsData = await jobsResponse.json();
+                currentJobs = jobsData.jobs;
+
                 updateUI();
             } catch (error) {
                 console.error('Error fetching data:', error);
@@ -208,6 +264,7 @@ HTML_TEMPLATE = """
 
         function updateUI() {
             const container = document.getElementById('printers-container');
+            const jobsContainer = document.getElementById('jobs-container');
             const lastUpdate = document.getElementById('last-update');
             const autoOffStatus = document.getElementById('auto-off-status');
             const disableBtn = document.getElementById('disable-auto-off-btn');
@@ -266,6 +323,29 @@ HTML_TEMPLATE = """
                 `;
 
                 container.appendChild(card);
+            }
+
+            // Update jobs display
+            jobsContainer.innerHTML = '';
+
+            if (currentJobs.length === 0) {
+                jobsContainer.innerHTML = '<div class="no-jobs">No pending print jobs</div>';
+            } else {
+                currentJobs.forEach(job => {
+                    const jobItem = document.createElement('div');
+                    jobItem.className = 'job-item';
+
+                    jobItem.innerHTML = `
+                        <div class="job-info">
+                            <div class="job-printer">${job.printer}</div>
+                            <div class="job-details">
+                                Job #${job.job_id} by <span class="job-user">${job.user}</span> - ${job.file}
+                            </div>
+                        </div>
+                    `;
+
+                    jobsContainer.appendChild(jobItem);
+                });
             }
         }
 
@@ -344,6 +424,41 @@ def cups_queue_has_jobs(printer_name):
         ["lpstat", "-o", printer_name], capture_output=True, text=True
     )
     return bool(result.stdout.strip())
+
+def get_pending_jobs():
+    """Get detailed information about all pending print jobs"""
+    jobs = []
+    try:
+        # Get all jobs from all printers
+        result = subprocess.run(
+            ["lpstat", "-o"], capture_output=True, text=True
+        )
+
+        if result.stdout.strip():
+            lines = result.stdout.strip().split('\n')
+            for line in lines:
+                # Parse lpstat output format: printer-jobid user date time file
+                parts = line.split()
+                if len(parts) >= 4:
+                    printer_job = parts[0].split('-')
+                    if len(printer_job) == 2:
+                        printer_name = printer_job[0]
+                        job_id = printer_job[1]
+                        user = parts[1]
+                        # Combine remaining parts for file name
+                        file_info = ' '.join(parts[3:]) if len(parts) > 3 else 'Unknown'
+
+                        jobs.append({
+                            'printer': printer_name,
+                            'job_id': job_id,
+                            'user': user,
+                            'file': file_info,
+                            'status': 'pending'
+                        })
+    except Exception as e:
+        print(f"Error getting pending jobs: {e}")
+
+    return jobs
 
 async def get_plug_status(ip):
     """Get plug status asynchronously"""
@@ -478,6 +593,12 @@ def enable_auto_off():
     global_state['auto_off_disabled_until'] = 0
 
     return jsonify({'success': True})
+
+@app.route('/api/jobs')
+def get_jobs():
+    """Get pending print jobs"""
+    jobs = get_pending_jobs()
+    return jsonify({'jobs': jobs})
 
 if __name__ == '__main__':
     # Initialize global state
