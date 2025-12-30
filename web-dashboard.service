@@ -1,0 +1,15 @@
+[Unit]
+Description=Print Server Web Dashboard
+After=network-online.target cups-tapo.service
+Requires=cups-tapo.service
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/printserver
+ExecStart=/home/pi/printserver/venv/bin/python3 /home/pi/printserver/scripts/web_dashboard.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

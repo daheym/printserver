@@ -10,8 +10,6 @@ WorkingDirectory=/home/pi/printserver
 ExecStart=/home/pi/printserver/venv/bin/python3 /home/pi/printserver/scripts/printserver_cups_tapo.py
 Restart=always
 RestartSec=10
-Environment=TAPO_EMAIL=your-tapo-email@example.com
-Environment=TAPO_PASSWORD=your-tapo-password
 
 [Install]
 WantedBy=multi-user.target

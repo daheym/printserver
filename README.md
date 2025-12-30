@@ -334,13 +334,32 @@ python scripts/test_energy.py
 ## Usage
 
 ### Web Dashboard
-The web dashboard provides a user-friendly interface to monitor and control your print server:
+The web dashboard provides a user-friendly interface to monitor and control your print server.
 
+#### Manual Execution
 ```bash
 python scripts/web_dashboard.py
 ```
 
 Then open `http://localhost:5000` in your browser.
+
+#### Automatic Service (Recommended)
+For the web dashboard to run automatically on boot:
+
+```bash
+# Copy the service file
+sudo cp web-dashboard.service /etc/systemd/system/
+
+# Enable and start the service (credentials are inherited from environment)
+sudo systemctl daemon-reload
+sudo systemctl enable web-dashboard
+sudo systemctl start web-dashboard
+
+# Check status
+sudo systemctl status web-dashboard
+```
+
+The dashboard will then be available at `http://localhost:5000` and start automatically on boot.
 
 **Features:**
 - **Monitor Print Jobs**: Real-time status of all configured printers
@@ -368,10 +387,7 @@ For automatic startup and management:
    - The CUPS printing service is running
    This prevents connection errors during system boot.
 
-2. Update the environment variables in the service file with your actual Tapo credentials:
-   ```bash
-   sudo nano /etc/systemd/system/cups-tapo.service
-   ```
+2. The service will inherit your Tapo credentials from the environment variables set during installation.
 
 3. Reload systemd and enable the service:
    ```bash

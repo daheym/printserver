@@ -18,6 +18,7 @@ TAPO_EMAIL=""
 TAPO_PASSWORD=""
 INSTALL_SAMBA=true
 CONFIGURE_PRINTERS=false
+INSTALL_WEB_DASHBOARD=true
 
 # Functions
 print_header() {
@@ -206,17 +207,34 @@ setup_systemd_service() {
     # Copy service file
     sudo cp cups-tapo.service /etc/systemd/system/
 
-    # Update service file with actual path and credentials
+    # Update service file with actual path
     sudo sed -i "s|WorkingDirectory=.*|WorkingDirectory=$PROJECT_DIR|" /etc/systemd/system/cups-tapo.service
     sudo sed -i "s|ExecStart=.*|ExecStart=$PROJECT_DIR/venv/bin/python $PROJECT_DIR/scripts/printserver_cups_tapo.py|" /etc/systemd/system/cups-tapo.service
-    sudo sed -i "s|TAPO_EMAIL=.*|TAPO_EMAIL=$TAPO_EMAIL|" /etc/systemd/system/cups-tapo.service
-    sudo sed -i "s|TAPO_PASSWORD=.*|TAPO_PASSWORD=$TAPO_PASSWORD|" /etc/systemd/system/cups-tapo.service
 
     # Reload systemd and enable service
     sudo systemctl daemon-reload
     sudo systemctl enable cups-tapo
 
     print_step "Systemd service configured"
+}
+
+setup_web_dashboard_service() {
+    if [[ "$INSTALL_WEB_DASHBOARD" == "true" ]]; then
+        print_step "Setting up web dashboard systemd service..."
+
+        # Copy service file
+        sudo cp web-dashboard.service /etc/systemd/system/
+
+        # Update service file with actual path
+        sudo sed -i "s|WorkingDirectory=.*|WorkingDirectory=$PROJECT_DIR|" /etc/systemd/system/web-dashboard.service
+        sudo sed -i "s|ExecStart=.*|ExecStart=$PROJECT_DIR/venv/bin/python $PROJECT_DIR/scripts/web_dashboard.py|" /etc/systemd/system/web-dashboard.service
+
+        # Reload systemd and enable service
+        sudo systemctl daemon-reload
+        sudo systemctl enable web-dashboard
+
+        print_step "Web dashboard systemd service configured"
+    fi
 }
 
 configure_printers() {
@@ -265,14 +283,20 @@ show_post_installation_steps() {
     echo
     echo "2. Update config.py with your printer names and Tapo plug IPs"
     echo
-    echo "3. Test the service:"
+    echo "3. Test the services:"
     echo "   sudo systemctl start cups-tapo"
     echo "   sudo systemctl status cups-tapo"
+    echo "   sudo systemctl start web-dashboard"
+    echo "   sudo systemctl status web-dashboard"
     echo
-    echo "4. View logs:"
+    echo "4. Access the web dashboard:"
+    echo "   http://$(hostname -I | awk '{print $1}'):5000"
+    echo
+    echo "5. View logs:"
     echo "   sudo journalctl -u cups-tapo -f"
+    echo "   sudo journalctl -u web-dashboard -f"
     echo
-    echo "5. For Windows sharing, ensure printers are shared in CUPS"
+    echo "6. For Windows sharing, ensure printers are shared in CUPS"
     echo
 }
 
@@ -310,6 +334,7 @@ main() {
     configure_environment
     install_custom_backend
     setup_systemd_service
+    setup_web_dashboard_service
     configure_printers
     test_installation
 
