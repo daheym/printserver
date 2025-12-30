@@ -77,27 +77,7 @@ global_state = {
     'last_update': 0
 }
 
-def load_auto_off_state():
-    """Load auto-off disabled state from file"""
-    try:
-        state_file = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'auto_off_state.txt')
-        if os.path.exists(state_file):
-            with open(state_file, 'r') as f:
-                data = f.read().strip().split(',')
-                if len(data) >= 2:
-                    global_state['original_turn_off_delay'] = int(data[0])
-                    global_state['auto_off_disabled_until'] = float(data[1])
-    except Exception as e:
-        print(f"Error loading auto-off state: {e}")
 
-def save_auto_off_state():
-    """Save auto-off disabled state to file"""
-    try:
-        state_file = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'auto_off_state.txt')
-        with open(state_file, 'w') as f:
-            f.write(f"{global_state['original_turn_off_delay']},{global_state['auto_off_disabled_until']}")
-    except Exception as e:
-        print(f"Error saving auto-off state: {e}")
 
 # HTML template
 HTML_TEMPLATE = """
@@ -190,6 +170,10 @@ HTML_TEMPLATE = """
             border: 1px solid #ddd;
             border-radius: 4px;
             width: 100px;
+        }
+        .config-item input:disabled {
+            background-color: #f5f5f5;
+            color: #999;
         }
         .auto-off-section {
             margin-top: 20px;
@@ -347,8 +331,9 @@ HTML_TEMPLATE = """
             const now = new Date();
             lastUpdate.textContent = `Last updated: ${now.toLocaleTimeString()}`;
 
-            // Update config
-            document.getElementById('turnOffDelay').value = currentData.config.turn_off_delay;
+            // Update config input field
+            const turnOffDelayInput = document.getElementById('turnOffDelay');
+            const updateButton = document.querySelector('button[onclick="updateConfig()"]');
 
             // Update auto-off status
             const isDisabled = currentData.config.auto_off_disabled;
@@ -356,11 +341,21 @@ HTML_TEMPLATE = """
                 autoOffStatus.className = 'auto-off-status auto-off-disabled';
                 autoOffStatus.textContent = 'Auto-off is temporarily disabled (2 hours)';
                 disableBtn.textContent = 'Re-enable Auto-Off';
+                // Disable input and update button when auto-off is disabled
+                turnOffDelayInput.disabled = true;
+                updateButton.disabled = true;
             } else {
                 autoOffStatus.className = 'auto-off-status auto-off-enabled';
                 autoOffStatus.textContent = 'Auto-off is enabled';
                 disableBtn.textContent = 'Disable Auto-Off (2 hours)';
+                // Enable input and update button when auto-off is enabled
+                turnOffDelayInput.disabled = false;
+                updateButton.disabled = false;
             }
+
+            // Show the actual current TURN_OFF_DELAY value (not always 600)
+            // But when disabled, we still show the stored value for reference
+            turnOffDelayInput.value = currentData.config.actual_turn_off_delay || 600;
 
             // Clear existing cards
             container.innerHTML = '';
@@ -634,13 +629,8 @@ def get_status():
     # Read current turn off delay from config
     current_turn_off_delay = read_config_value('TURN_OFF_DELAY') or 600
 
-    # Check if auto-off should be re-enabled
-    if global_state['auto_off_disabled_until'] > 0 and now >= global_state['auto_off_disabled_until']:
-        # Restore original delay
-        original_delay = global_state.get('original_turn_off_delay', 600)
-        write_config_value('TURN_OFF_DELAY', original_delay)
-        global_state['auto_off_disabled_until'] = 0
-        current_turn_off_delay = original_delay
+    # Determine if auto-off is disabled (TURN_OFF_DELAY = 7200 means disabled)
+    auto_off_disabled = (current_turn_off_delay == 7200)
 
     # Get countdowns directly from journalctl logs
     journal_countdowns = get_printer_countdowns()
@@ -681,8 +671,9 @@ def get_status():
     return jsonify({
         'printers': printers_data,
         'config': {
-            'turn_off_delay': current_turn_off_delay,
-            'auto_off_disabled': now < global_state['auto_off_disabled_until']
+            'turn_off_delay': 600 if auto_off_disabled else current_turn_off_delay,  # Show 600 when disabled, actual value when enabled
+            'actual_turn_off_delay': current_turn_off_delay,  # Always provide the actual value
+            'auto_off_disabled': auto_off_disabled
         },
         'timestamp': now
     })
@@ -735,25 +726,25 @@ def handle_config():
 
 @app.route('/api/disable_auto_off', methods=['POST'])
 def disable_auto_off():
-    """Temporarily disable auto-off for 2 hours"""
-    # Read current delay from config (keep it unchanged)
-    current_delay = read_config_value('TURN_OFF_DELAY') or 600
+    """Temporarily disable auto-off for 2 hours by setting TURN_OFF_DELAY to 7200"""
+    # Store original value
+    global_state['original_turn_off_delay'] = read_config_value('TURN_OFF_DELAY') or 600
 
-    # Store original value in global state for restoration
-    global_state['original_turn_off_delay'] = current_delay
-
-    # Set disabled state without changing TURN_OFF_DELAY
-    now = time.time()
-    global_state['auto_off_disabled_until'] = now + 7200  # 2 hours from now
-    save_auto_off_state()  # Save state to file
-    return jsonify({'success': True, 'disabled_until': global_state['auto_off_disabled_until']})
+    # Set TURN_OFF_DELAY to 7200 (2 hours) to effectively disable auto-off
+    if write_config_value('TURN_OFF_DELAY', 7200):
+        return jsonify({'success': True})
+    else:
+        return jsonify({'error': 'Failed to disable auto-off'}), 500
 
 @app.route('/api/enable_auto_off', methods=['POST'])
 def enable_auto_off():
-    """Re-enable auto-off (TURN_OFF_DELAY stays unchanged)"""
-    global_state['auto_off_disabled_until'] = 0
-    save_auto_off_state()  # Save state to file
-    return jsonify({'success': True})
+    """Re-enable auto-off by restoring TURN_OFF_DELAY to 600"""
+    original_delay = global_state.get('original_turn_off_delay', 600)
+
+    if write_config_value('TURN_OFF_DELAY', original_delay):
+        return jsonify({'success': True})
+    else:
+        return jsonify({'error': 'Failed to enable auto-off'}), 500
 
 @app.route('/api/jobs')
 def get_jobs():
@@ -762,9 +753,6 @@ def get_jobs():
     return jsonify({'jobs': jobs})
 
 if __name__ == '__main__':
-    # Load auto-off state from file
-    load_auto_off_state()
-
     # Initialize global state
     for printer in PRINTERS:
         global_state['plug_status'][printer] = False
