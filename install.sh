@@ -168,20 +168,32 @@ setup_python_environment() {
     print_step "Python environment set up successfully"
 }
 
-configure_environment() {
-    print_step "Configuring environment variables..."
+configure_credentials() {
+    print_step "Configuring Tapo credentials..."
 
-    # Add to user's bashrc
+    # Create credentials file in home directory
+    CREDENTIALS_FILE="$HOME/.tapo_credentials"
+
+    # Create the file with proper format
+    cat > "$CREDENTIALS_FILE" << EOF
+export TAPO_EMAIL="$TAPO_EMAIL"
+export TAPO_PASSWORD="$TAPO_PASSWORD"
+EOF
+
+    # Set proper permissions (owner read/write only)
+    chmod 600 "$CREDENTIALS_FILE"
+
+    # Also add to user's bashrc for backward compatibility
     if ! grep -q "TAPO_EMAIL" ~/.bashrc; then
         echo "export TAPO_EMAIL=\"$TAPO_EMAIL\"" >> ~/.bashrc
         echo "export TAPO_PASSWORD=\"$TAPO_PASSWORD\"" >> ~/.bashrc
     fi
 
-    # Also set for current session
+    # Set for current session
     export TAPO_EMAIL="$TAPO_EMAIL"
     export TAPO_PASSWORD="$TAPO_PASSWORD"
 
-    print_step "Environment variables configured"
+    print_step "Tapo credentials configured in $CREDENTIALS_FILE and ~/.bashrc"
 }
 
 install_custom_backend() {
@@ -331,7 +343,7 @@ main() {
     configure_cups
     configure_samba
     setup_python_environment
-    configure_environment
+    configure_credentials
     install_custom_backend
     setup_systemd_service
     setup_web_dashboard_service

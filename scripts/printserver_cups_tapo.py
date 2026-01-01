@@ -116,6 +116,7 @@ async def main():
 
     # Initialize plug states
     print(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] Initializing printer states...")
+    sys.stdout.flush()
     for printer, ip in PRINTERS.items():
         try:
             plug = await Discover.discover_single(ip, username=TAPO_EMAIL, password=TAPO_PASSWORD)
@@ -133,10 +134,12 @@ async def main():
             else:
                 last_job_time[printer] = 0
                 print(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] {printer}: OFF")
+            sys.stdout.flush()
             if hasattr(plug, 'protocol') and hasattr(plug.protocol, 'close'):
                 await plug.protocol.close()
         except Exception as e:
             print(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] Error initializing {printer}: {e}")
+            sys.stdout.flush()
             plug_status[printer] = False
             last_job_time[printer] = 0
 
@@ -151,6 +154,7 @@ async def main():
         for printer, ip in PRINTERS.items():
             has_jobs = cups_queue_has_jobs(printer)
             print(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] Checking {printer}: {'jobs present' if has_jobs else 'no jobs'}")
+            sys.stdout.flush()
 
             if has_jobs and not plug_status[printer]:
                 await turn_on(ip, printer)
@@ -164,16 +168,19 @@ async def main():
                 # If TURN_OFF_DELAY is 7200, auto-off is disabled (keeps printers on indefinitely)
                 if current_turn_off_delay == 7200:
                     print(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] {printer}: Auto-off is disabled, keeping printer ON")
+                    sys.stdout.flush()
                     continue
 
                 # Detect manual activation: plug was off, now on
                 if not previous_plug_status.get(printer, False) and plug_status[printer]:
                     last_job_time[printer] = now
                     print(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] {printer}: Manual activation detected, starting {current_turn_off_delay}s countdown")
+                    sys.stdout.flush()
 
                 remaining = current_turn_off_delay - (now - last_job_time[printer])
                 if remaining > 0:
                     print(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] {printer}: No jobs, turning off in {int(remaining)} seconds")
+                    sys.stdout.flush()
                 else:
                     await turn_off(ip, printer)
                     plug_status[printer] = False

@@ -263,9 +263,42 @@ If you prefer manual installation, follow these steps:
 
 ## Configuration
 
-### Environment Variables
+### Tapo Credentials File
+The system uses a credentials file `.tapo_credentials` in your home directory to securely store your Tapo account information.
+
+**File Location**: `/home/pi/.tapo_credentials` (in your home directory)
+
+**File Format**:
+```bash
+export TAPO_EMAIL="your-email@example.com"
+export TAPO_PASSWORD="your-password"
+```
+
+**Security Notes**:
+- The file contains your Tapo account credentials
+- File permissions are set to `600` (owner read/write only)
+- Keep this file secure and don't commit it to version control
+- The automated installation script creates this file for you
+
+**Manual Creation** (if needed):
+```bash
+# Create the credentials file
+nano ~/.tapo_credentials
+
+# Add your credentials (replace with actual values)
+export TAPO_EMAIL="your-email@example.com"
+export TAPO_PASSWORD="your-complex-password"
+
+# Set proper permissions
+chmod 600 ~/.tapo_credentials
+```
+
+### Environment Variables (Alternative)
+As a fallback, you can also set credentials via environment variables:
 - `TAPO_EMAIL`: Your Tapo account email
 - `TAPO_PASSWORD`: Your Tapo account password
+
+However, the credentials file approach is preferred for security and reliability.
 
 ### Centralized Configuration (config.py)
 The system uses a centralized configuration file `config.py` to manage printer mappings and credentials. This file is shared across all scripts for consistency.
