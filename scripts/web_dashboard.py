@@ -135,6 +135,11 @@ HTML_TEMPLATE = """
             gap: 10px;
             align-items: center;
         }
+        .job-actions {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
         button {
             padding: 8px 16px;
             border: none;
@@ -145,6 +150,7 @@ HTML_TEMPLATE = """
         .btn-on { background-color: #4CAF50; color: white; }
         .btn-off { background-color: #f44336; color: white; }
         .btn-update { background-color: #2196F3; color: white; }
+        .btn-cancel { background-color: #ff9800; color: white; }
         button:disabled {
             background-color: #cccccc;
             cursor: not-allowed;
@@ -227,6 +233,11 @@ HTML_TEMPLATE = """
             margin-top: 0;
             color: #333;
         }
+        .jobs-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+            gap: 20px;
+        }
         .no-jobs {
             text-align: center;
             color: #666;
@@ -271,10 +282,19 @@ HTML_TEMPLATE = """
         <!-- Printer cards will be inserted here -->
     </div>
 
-    <div class="jobs-section">
-        <h2>Pending Print Jobs</h2>
-        <div id="jobs-container">
-            <!-- Job items will be inserted here -->
+    <div class="jobs-grid">
+        <div class="jobs-section">
+            <h2>Pending Print Jobs</h2>
+            <div id="jobs-container">
+                <!-- Job items will be inserted here -->
+            </div>
+        </div>
+
+        <div class="jobs-section">
+            <h2>Last 3 Completed Jobs</h2>
+            <div id="recent-jobs-container">
+                <!-- Recent job items will be inserted here -->
+            </div>
         </div>
     </div>
 
@@ -302,17 +322,21 @@ HTML_TEMPLATE = """
     <script>
         let currentData = {};
         let currentJobs = [];
+        let recentJobs = [];
 
         async function fetchData() {
             try {
-                const [statusResponse, jobsResponse] = await Promise.all([
+                const [statusResponse, jobsResponse, recentJobsResponse] = await Promise.all([
                     fetch('/api/status'),
-                    fetch('/api/jobs')
+                    fetch('/api/jobs'),
+                    fetch('/api/recent-jobs')
                 ]);
 
                 currentData = await statusResponse.json();
                 const jobsData = await jobsResponse.json();
+                const recentJobsData = await recentJobsResponse.json();
                 currentJobs = jobsData.jobs;
+                recentJobs = recentJobsData.jobs;
 
                 updateUI();
             } catch (error) {
@@ -323,6 +347,7 @@ HTML_TEMPLATE = """
         function updateUI() {
             const container = document.getElementById('printers-container');
             const jobsContainer = document.getElementById('jobs-container');
+            const recentJobsContainer = document.getElementById('recent-jobs-container');
             const lastUpdate = document.getElementById('last-update');
             const autoOffStatus = document.getElementById('auto-off-status');
             const disableBtn = document.getElementById('disable-auto-off-btn');
@@ -406,6 +431,7 @@ HTML_TEMPLATE = """
 
             // Update jobs display
             jobsContainer.innerHTML = '';
+            recentJobsContainer.innerHTML = '';
 
             if (currentJobs.length === 0) {
                 jobsContainer.innerHTML = '<div class="no-jobs">No pending print jobs</div>';
@@ -421,9 +447,33 @@ HTML_TEMPLATE = """
                                 Job #${job.job_id} by <span class="job-user">${job.user}</span> - ${job.file}
                             </div>
                         </div>
+                        <div class="job-actions">
+                            <button class="btn-cancel" onclick="cancelJob('${job.printer}', '${job.job_id}')">Cancel</button>
+                        </div>
                     `;
 
                     jobsContainer.appendChild(jobItem);
+                });
+            }
+
+            if (recentJobs.length === 0) {
+                recentJobsContainer.innerHTML = '<div class="no-jobs">No completed print jobs available</div>';
+            } else {
+                recentJobs.forEach(job => {
+                    const jobItem = document.createElement('div');
+                    jobItem.className = 'job-item';
+
+                    jobItem.innerHTML = `
+                        <div class="job-info">
+                            <div class="job-printer">${job.printer}</div>
+                            <div class="job-details">
+                                Job #${job.job_id} by <span class="job-user">${job.user}</span><br>
+                                ${job.completed_at}${job.size ? ` - ${job.size}` : ''}
+                            </div>
+                        </div>
+                    `;
+
+                    recentJobsContainer.appendChild(jobItem);
                 });
             }
         }
@@ -441,6 +491,29 @@ HTML_TEMPLATE = """
             } catch (error) {
                 console.error('Error controlling plug:', error);
                 alert('Error controlling plug');
+            }
+        }
+
+        async function cancelJob(printer, jobId) {
+            const confirmed = confirm(`Cancel print job #${jobId} on ${printer}?`);
+            if (!confirmed) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`/api/jobs/${printer}/${jobId}/cancel`, {
+                    method: 'POST'
+                });
+
+                if (response.ok) {
+                    await fetchData();
+                } else {
+                    const errorData = await response.json().catch(() => ({}));
+                    alert(errorData.error || 'Failed to cancel print job');
+                }
+            } catch (error) {
+                console.error('Error cancelling job:', error);
+                alert('Error cancelling print job');
             }
         }
 
@@ -504,6 +577,12 @@ def cups_queue_has_jobs(printer_name):
     )
     return bool(result.stdout.strip())
 
+def parse_printer_job(printer_job):
+    """Split a CUPS printer-job string into printer name and job id."""
+    if '-' not in printer_job:
+        return None, None
+    return printer_job.rsplit('-', 1)
+
 def get_pending_jobs():
     """Get detailed information about all pending print jobs"""
     jobs = []
@@ -519,10 +598,8 @@ def get_pending_jobs():
                 # Parse lpstat output format: printer-jobid user date time file
                 parts = line.split()
                 if len(parts) >= 4:
-                    printer_job = parts[0].split('-')
-                    if len(printer_job) == 2:
-                        printer_name = printer_job[0]
-                        job_id = printer_job[1]
+                    printer_name, job_id = parse_printer_job(parts[0])
+                    if printer_name and job_id:
                         user = parts[1]
                         # Combine remaining parts for file name
                         file_info = ' '.join(parts[3:]) if len(parts) > 3 else 'Unknown'
@@ -536,6 +613,33 @@ def get_pending_jobs():
                         })
     except Exception as e:
         print(f"Error getting pending jobs: {e}")
+
+    return jobs
+
+def get_recent_completed_jobs(limit=3):
+    """Get the most recent completed CUPS print jobs."""
+    jobs = []
+    try:
+        result = subprocess.run(
+            ["lpstat", "-W", "completed", "-o"], capture_output=True, text=True
+        )
+
+        if result.stdout.strip():
+            lines = result.stdout.strip().split('\n')
+            for line in lines[:limit]:
+                parts = line.split()
+                if len(parts) >= 7:
+                    printer_name, job_id = parse_printer_job(parts[0])
+                    if printer_name and job_id:
+                        jobs.append({
+                            'printer': printer_name,
+                            'job_id': job_id,
+                            'user': parts[1],
+                            'size': f"{parts[2]} bytes",
+                            'completed_at': ' '.join(parts[3:])
+                        })
+    except Exception as e:
+        print(f"Error getting completed jobs: {e}")
 
     return jobs
 
@@ -616,6 +720,21 @@ async def control_plug(ip, action):
     except Exception as e:
         print(f"Error controlling plug {ip}: {e}")
         return False
+
+def cancel_print_job(printer, job_id):
+    """Cancel a specific CUPS print job."""
+    try:
+        result = subprocess.run(
+            ["cancel", f"{printer}-{job_id}"], capture_output=True, text=True
+        )
+        if result.returncode == 0:
+            return True, None
+
+        error_message = result.stderr.strip() or result.stdout.strip() or "Failed to cancel print job"
+        return False, error_message
+    except Exception as e:
+        print(f"Error cancelling print job {printer}-{job_id}: {e}")
+        return False, str(e)
 
 @app.route('/')
 def index():
@@ -750,6 +869,23 @@ def enable_auto_off():
 def get_jobs():
     """Get pending print jobs"""
     jobs = get_pending_jobs()
+    return jsonify({'jobs': jobs})
+
+@app.route('/api/jobs/<printer>/<job_id>/cancel', methods=['POST'])
+def cancel_job(printer, job_id):
+    """Cancel a specific pending print job."""
+    if printer not in PRINTERS:
+        return jsonify({'error': 'Printer not found'}), 404
+
+    success, error_message = cancel_print_job(printer, job_id)
+    if success:
+        return jsonify({'success': True})
+    return jsonify({'error': error_message}), 500
+
+@app.route('/api/recent-jobs')
+def get_recent_jobs():
+    """Get the most recent completed print jobs"""
+    jobs = get_recent_completed_jobs(3)
     return jsonify({'jobs': jobs})
 
 if __name__ == '__main__':
