@@ -10,34 +10,10 @@ from kasa import Discover
 # Add parent directory to path for config import
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 from config import PRINTERS, TAPO_EMAIL, TAPO_PASSWORD
+from runtime_config import get_turn_off_delay, is_auto_off_disabled
 
 # Timing
 CHECK_INTERVAL = 30     # seconds between CUPS checks
-
-def get_turn_off_delay():
-    """Read TURN_OFF_DELAY from config file dynamically"""
-    try:
-        # Read directly from config file to get latest value
-        config_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'config.py')
-        with open(config_path, 'r') as f:
-            content = f.read()
-            # Simple parsing - look for the key = value line
-            for line in content.split('\n'):
-                line = line.strip()
-                if line.startswith('TURN_OFF_DELAY = '):
-                    value_str = line.split(' = ')[1]
-                    # Remove comments
-                    if '#' in value_str:
-                        value_str = value_str.split('#')[0].strip()
-                    # Try to evaluate as Python literal
-                    try:
-                        return eval(value_str)
-                    except:
-                        pass
-        return 600  # Fallback if parsing fails
-    except Exception as e:
-        print(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] Error reading TURN_OFF_DELAY from config: {e}")
-        return 600  # Fallback to default 10 minutes
 
 # ===== FUNCTIONS =====
 def cups_queue_has_jobs(printer_name):
@@ -162,11 +138,10 @@ async def main():
                 last_job_time[printer] = now
 
             elif plug_status[printer] and not has_jobs:
-                # Get current turn off delay from config
+                # Read the latest runtime config so dashboard updates apply live.
                 current_turn_off_delay = get_turn_off_delay()
 
-                # If TURN_OFF_DELAY is 7200, auto-off is disabled (keeps printers on indefinitely)
-                if current_turn_off_delay == 7200:
+                if is_auto_off_disabled(now):
                     print(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] {printer}: Auto-off is disabled, keeping printer ON")
                     sys.stdout.flush()
                     continue

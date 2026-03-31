@@ -34,5 +34,6 @@ credentials = load_credentials()
 TAPO_EMAIL = credentials.get('TAPO_EMAIL', os.environ.get('TAPO_EMAIL', 'default@example.com'))
 TAPO_PASSWORD = credentials.get('TAPO_PASSWORD', os.environ.get('TAPO_PASSWORD', 'default_password'))
 
-# Dynamic configuration (can be modified by web dashboard)
+# Default runtime configuration. The web dashboard stores live overrides
+# in runtime_config.json without modifying this file.
 TURN_OFF_DELAY = 600

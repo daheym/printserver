@@ -12,66 +12,20 @@ from kasa import Discover
 # Add parent directory to path for config import
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 from config import PRINTERS, TAPO_EMAIL, TAPO_PASSWORD
-
-def read_config_value(key):
-    """Read a value from config.py file"""
-    try:
-        with open(os.path.join(os.path.dirname(os.path.dirname(__file__)), 'config.py'), 'r') as f:
-            content = f.read()
-            # Simple parsing - look for the key = value line
-            for line in content.split('\n'):
-                line = line.strip()
-                if line.startswith(key + ' = '):
-                    value_str = line.split(' = ')[1]
-                    # Remove comments
-                    if '#' in value_str:
-                        value_str = value_str.split('#')[0].strip()
-                    # Try to evaluate as Python literal
-                    try:
-                        return eval(value_str)
-                    except:
-                        return value_str.strip()
-        return None
-    except Exception as e:
-        print(f"Error reading {key} from config: {e}")
-        return None
-
-def write_config_value(key, value):
-    """Write a value to config.py file"""
-    try:
-        config_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'config.py')
-        with open(config_path, 'r') as f:
-            content = f.read()
-
-        lines = content.split('\n')
-        found = False
-        for i, line in enumerate(lines):
-            line_strip = line.strip()
-            if line_strip.startswith(key + ' = '):
-                # Replace the line
-                lines[i] = f"{key} = {repr(value)}"
-                found = True
-                break
-
-        if not found:
-            # Add at the end
-            lines.append(f"{key} = {repr(value)}")
-
-        with open(config_path, 'w') as f:
-            f.write('\n'.join(lines))
-
-        return True
-    except Exception as e:
-        print(f"Error writing {key} to config: {e}")
-        return False
+from runtime_config import (
+    disable_auto_off as disable_auto_off_config,
+    enable_auto_off as enable_auto_off_config,
+    get_auto_off_disable_duration,
+    get_turn_off_delay,
+    is_auto_off_disabled,
+    load_runtime_config,
+    set_turn_off_delay,
+)
 
 app = Flask(__name__)
 
 # Global state (in a real app, use a database or proper state management)
 global_state = {
-    'turn_off_delay': 600,  # Default 10 minutes
-    'original_turn_off_delay': 600,  # Store original value
-    'auto_off_disabled_until': 0,  # Timestamp when auto-off should be re-enabled
     'plug_status': {},
     'last_job_time': {},
     'last_update': 0
@@ -359,12 +313,13 @@ HTML_TEMPLATE = """
             // Update config input field
             const turnOffDelayInput = document.getElementById('turnOffDelay');
             const updateButton = document.querySelector('button[onclick="updateConfig()"]');
+            const disableDurationLabel = currentData.config.auto_off_disable_duration_label || '2 hours';
 
             // Update auto-off status
             const isDisabled = currentData.config.auto_off_disabled;
             if (isDisabled) {
                 autoOffStatus.className = 'auto-off-status auto-off-disabled';
-                autoOffStatus.textContent = 'Auto-off is temporarily disabled (2 hours)';
+                autoOffStatus.textContent = `Auto-off is temporarily disabled for ${disableDurationLabel}`;
                 disableBtn.textContent = 'Re-enable Auto-Off';
                 // Disable input and update button when auto-off is disabled
                 turnOffDelayInput.disabled = true;
@@ -372,7 +327,7 @@ HTML_TEMPLATE = """
             } else {
                 autoOffStatus.className = 'auto-off-status auto-off-enabled';
                 autoOffStatus.textContent = 'Auto-off is enabled';
-                disableBtn.textContent = 'Disable Auto-Off (2 hours)';
+                disableBtn.textContent = `Disable Auto-Off (${disableDurationLabel})`;
                 // Enable input and update button when auto-off is enabled
                 turnOffDelayInput.disabled = false;
                 updateButton.disabled = false;
@@ -570,6 +525,18 @@ HTML_TEMPLATE = """
 </html>
 """
 
+
+def format_duration_label(seconds):
+    """Return a short human-readable duration label for the UI."""
+    seconds = max(1, int(seconds))
+    if seconds % 3600 == 0:
+        hours = seconds // 3600
+        return f"{hours} hour" if hours == 1 else f"{hours} hours"
+    if seconds % 60 == 0:
+        minutes = seconds // 60
+        return f"{minutes} minute" if minutes == 1 else f"{minutes} minutes"
+    return f"{seconds} seconds"
+
 def cups_queue_has_jobs(printer_name):
     """Check if there are jobs in a CUPS printer queue"""
     result = subprocess.run(
@@ -744,12 +711,10 @@ def index():
 def get_status():
     """Get current status of all printers"""
     now = time.time()
-
-    # Read current turn off delay from config
-    current_turn_off_delay = read_config_value('TURN_OFF_DELAY') or 600
-
-    # Determine if auto-off is disabled (TURN_OFF_DELAY = 7200 means disabled)
-    auto_off_disabled = (current_turn_off_delay == 7200)
+    runtime_config = load_runtime_config()
+    current_turn_off_delay = runtime_config['turn_off_delay']
+    auto_off_disabled = runtime_config['auto_off_disabled_until'] > now
+    auto_off_disable_duration = runtime_config['auto_off_disable_duration']
 
     # Get countdowns directly from journalctl logs
     journal_countdowns = get_printer_countdowns()
@@ -790,9 +755,11 @@ def get_status():
     return jsonify({
         'printers': printers_data,
         'config': {
-            'turn_off_delay': 600 if auto_off_disabled else current_turn_off_delay,  # Show 600 when disabled, actual value when enabled
-            'actual_turn_off_delay': current_turn_off_delay,  # Always provide the actual value
-            'auto_off_disabled': auto_off_disabled
+            'turn_off_delay': current_turn_off_delay,
+            'actual_turn_off_delay': current_turn_off_delay,
+            'auto_off_disabled': auto_off_disabled,
+            'auto_off_disable_duration': auto_off_disable_duration,
+            'auto_off_disable_duration_label': format_duration_label(auto_off_disable_duration)
         },
         'timestamp': now
     })
@@ -825,19 +792,22 @@ def control_printer_plug(printer, action):
 def handle_config():
     """Get or update configuration"""
     if request.method == 'GET':
-        current_delay = read_config_value('TURN_OFF_DELAY') or 600
+        current_delay = get_turn_off_delay()
         return jsonify({
             'turn_off_delay': current_delay,
-            'auto_off_disabled': time.time() < global_state['auto_off_disabled_until']
+            'auto_off_disabled': is_auto_off_disabled(),
+            'auto_off_disable_duration': get_auto_off_disable_duration()
         })
     elif request.method == 'POST':
         data = request.get_json()
         if 'turn_off_delay' in data:
             delay = int(data['turn_off_delay'])
             if 60 <= delay <= 3600:  # Between 1 minute and 1 hour
-                if write_config_value('TURN_OFF_DELAY', delay):
+                try:
+                    set_turn_off_delay(delay)
                     return jsonify({'success': True})
-                else:
+                except Exception as e:
+                    print(f"Error updating runtime config: {e}")
                     return jsonify({'error': 'Failed to update config'}), 500
             else:
                 return jsonify({'error': 'Invalid delay value'}), 400
@@ -845,24 +815,22 @@ def handle_config():
 
 @app.route('/api/disable_auto_off', methods=['POST'])
 def disable_auto_off():
-    """Temporarily disable auto-off for 2 hours by setting TURN_OFF_DELAY to 7200"""
-    # Store original value
-    global_state['original_turn_off_delay'] = read_config_value('TURN_OFF_DELAY') or 600
-
-    # Set TURN_OFF_DELAY to 7200 (2 hours) to effectively disable auto-off
-    if write_config_value('TURN_OFF_DELAY', 7200):
+    """Temporarily disable auto-off for 2 hours."""
+    try:
+        disable_auto_off_config()
         return jsonify({'success': True})
-    else:
+    except Exception as e:
+        print(f"Error disabling auto-off: {e}")
         return jsonify({'error': 'Failed to disable auto-off'}), 500
 
 @app.route('/api/enable_auto_off', methods=['POST'])
 def enable_auto_off():
-    """Re-enable auto-off by restoring TURN_OFF_DELAY to 600"""
-    original_delay = global_state.get('original_turn_off_delay', 600)
-
-    if write_config_value('TURN_OFF_DELAY', original_delay):
+    """Re-enable auto-off immediately."""
+    try:
+        enable_auto_off_config()
         return jsonify({'success': True})
-    else:
+    except Exception as e:
+        print(f"Error enabling auto-off: {e}")
         return jsonify({'error': 'Failed to enable auto-off'}), 500
 
 @app.route('/api/jobs')

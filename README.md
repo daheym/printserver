@@ -19,7 +19,7 @@ cd printserver
 ./install.sh
 ```
 
-That's it! The automated script handles everything. Then just configure your printers and plugs in `config.py`.
+That's it! The automated script handles everything. Then configure your printers and plugs in `config.py`. Runtime settings changed from the web dashboard are stored separately in `runtime_config.json`.
 
 ## Supported Hardware
 
@@ -300,8 +300,8 @@ As a fallback, you can also set credentials via environment variables:
 
 However, the credentials file approach is preferred for security and reliability.
 
-### Centralized Configuration (config.py)
-The system uses a centralized configuration file `config.py` to manage printer mappings and credentials. This file is shared across all scripts for consistency.
+### Centralized Configuration (`config.py`)
+The system uses `config.py` for static configuration such as printer mappings, credentials, and the default shutdown delay. This file is shared across all scripts for consistency.
 
 #### Configuration Structure
 ```python
@@ -332,6 +332,7 @@ TAPO_PASSWORD = os.environ.get('TAPO_PASSWORD', 'default_password')
    - **IP Address**: The static IP of the Tapo smart plug connected to that printer
 
 3. Ensure your Tapo credentials are set in environment variables (see Installation section)
+4. Set `TURN_OFF_DELAY` in `config.py` if you want a different default value for fresh installs or after deleting runtime overrides
 
 #### Benefits
 - **Centralized Management**: All printer configurations in one place
@@ -339,12 +340,31 @@ TAPO_PASSWORD = os.environ.get('TAPO_PASSWORD', 'default_password')
 - **Easy Maintenance**: Add/remove printers by editing one file
 - **Scalability**: Simple to expand with additional printers
 
-**Note**: The `config.py` file is automatically imported by all scripts. No additional configuration steps are needed after editing this file.
+**Note**: The web dashboard no longer rewrites `config.py`. Live dashboard changes are stored in `runtime_config.json`, and `config.py` remains the source of defaults.
 
 ### Timing Configuration
 Adjust these values in `scripts/printserver_cups_tapo.py`:
 - `CHECK_INTERVAL`: Seconds between CUPS queue checks (default: 30)
-- `TURN_OFF_DELAY`: Seconds to wait after last job before powering off (default: 600)
+
+Adjust this value in `config.py`:
+- `TURN_OFF_DELAY`: Default seconds to wait after the last job before powering off (default: 600)
+
+When the web dashboard changes the delay, the active value is written to `runtime_config.json` and picked up automatically by the running services. A service restart is only needed after code updates, not for normal delay changes.
+
+The temporary auto-off disable window is also runtime-configurable through `runtime_config.json`:
+- `auto_off_disable_duration`: How many seconds the "Disable Auto-Off" action should last (default: `7200`)
+- `auto_off_disabled_until`: Absolute Unix timestamp until which auto-off remains disabled
+
+Example `runtime_config.json` content:
+```json
+{
+  "auto_off_disable_duration": 7200,
+  "auto_off_disabled_until": 0,
+  "turn_off_delay": 600
+}
+```
+
+`runtime_config.json` is intended as a local runtime-state file and is a good candidate for `.gitignore`, since the dashboard updates it frequently during normal use. Please create this file in your project folder, otherwise the defaults from `config.py` will be used as fallback. 
 
 ### Energy Monitoring
 The system includes built-in energy consumption tracking for Tapo plugs that support energy monitoring:
@@ -368,6 +388,8 @@ python scripts/test_energy.py
 
 ### Web Dashboard
 The web dashboard provides a user-friendly interface to monitor and control your print server.
+
+Dashboard-managed runtime settings are stored in `runtime_config.json`. The file is created automatically the first time you change the turn-off delay or temporarily disable auto-off from the dashboard.
 
 #### Manual Execution
 ```bash
@@ -399,7 +421,7 @@ The dashboard will then be available at `http://localhost:5000` and start automa
 - **View Pending Jobs**: Detailed list of all queued print jobs with user and file information
 - **Manual Plug Control**: Turn printers on/off manually
 - **Countdown Timer**: Adjust the auto-shutoff delay (1-60 minutes)
-- **Temporary Override**: Disable auto-shutoff for 2 hours (automatically reverts)
+- **Temporary Override**: Disable auto-shutoff for the configured runtime window (default: 2 hours, automatically reverts)
 
 ### Manual Execution
 Run the automated print server:
@@ -479,7 +501,9 @@ python scripts/test_iotplug.py
 - `requirements.txt`: **NEW** - Python dependencies specification
 - `always-available-backend`: Custom CUPS backend that makes printers appear always available to Windows clients
 - `cups-tapo.service`: Systemd service configuration for automatic startup
-- `config.py`: Centralized configuration for printer mappings and credentials
+- `config.py`: Static configuration for printer mappings, credentials, and default delay
+- `runtime_config.py`: Shared helper for reading and writing dashboard-managed runtime settings
+- `runtime_config.json`: Auto-generated runtime state file for live dashboard overrides
 
 ### Scripts
 - `scripts/printserver_cups_tapo.py`: Main service that monitors CUPS queues and controls plugs
@@ -537,6 +561,9 @@ Yes, if you use Tapo P110 plugs (or other energy-monitoring models), the system 
 3. Set a static IP for the plug in your router
 4. Add the mapping to `config.py`: `"Printer_Name": "192.168.1.100"`
 
+### Do I need to restart services after changing the turn-off delay?
+No for normal dashboard changes. The dashboard writes the active delay to `runtime_config.json`, and the main print service rereads it while running. You only need a restart after changing the application code or service configuration itself.
+
 ### Is this secure?
 The system uses restricted sudo permissions only for necessary USB operations. The CUPS `lp` user gets minimal permissions required for printer communication. For high-security environments, consider running CUPS backends as root.
 
@@ -547,7 +574,7 @@ You can still use the manual installation instructions provided in the "Detailed
 Yes! This was designed for Raspberry Pi systems. Use Raspberry Pi OS (Debian-based) and follow the automated installation.
 
 ### How do I backup my configuration?
-Just backup the `config.py` file and your environment variables. The installation script handles the rest.
+Backup `config.py`, `runtime_config.json` if it exists, and your environment variables. The installation script handles the rest.
 
 ## Recent Changes
 
