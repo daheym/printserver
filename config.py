@@ -10,11 +10,10 @@ PRINTERS = {
 }
 
 # Tapo credentials - loaded from .tapo_credentials file
-def load_credentials():
-    credentials_file = os.path.join(os.path.dirname(__file__), '..', '.tapo_credentials')
+def load_key_value_file(path):
     credentials = {}
     try:
-        with open(credentials_file, 'r') as f:
+        with open(path, 'r', encoding='utf-8') as f:
             for line in f:
                 line = line.strip()
                 if '=' in line and not line.startswith('#'):
@@ -30,9 +29,36 @@ def load_credentials():
         pass
     return credentials
 
+
+def load_credentials():
+    credentials_file = os.path.join(os.path.dirname(__file__), '..', '.tapo_credentials')
+    return load_key_value_file(credentials_file)
+
+
+def get_int_setting(value, default):
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
 credentials = load_credentials()
 TAPO_EMAIL = credentials.get('TAPO_EMAIL', os.environ.get('TAPO_EMAIL', 'default@example.com'))
 TAPO_PASSWORD = credentials.get('TAPO_PASSWORD', os.environ.get('TAPO_PASSWORD', 'default_password'))
+
+# Mail notifications - loaded from a git-ignored local file in the repo root
+mail_credentials = load_key_value_file(
+    os.path.join(os.path.dirname(__file__), '.mail_credentials')
+)
+MAIL_SENDER = mail_credentials.get('MAIL_SENDER', os.environ.get('MAIL_SENDER', ''))
+MAIL_RECEIVER = mail_credentials.get('MAIL_RECEIVER', os.environ.get('MAIL_RECEIVER', MAIL_SENDER))
+MAIL_PASSWORD = mail_credentials.get('MAIL_PASSWORD', os.environ.get('MAIL_PASSWORD', ''))
+MAIL_SMTP_HOST = mail_credentials.get('MAIL_SMTP_HOST', os.environ.get('MAIL_SMTP_HOST', 'smtp.gmail.com'))
+MAIL_SMTP_PORT = get_int_setting(
+    mail_credentials.get('MAIL_SMTP_PORT', os.environ.get('MAIL_SMTP_PORT', '465')),
+    465,
+)
+MAIL_ENABLED = bool(MAIL_SENDER and MAIL_RECEIVER and MAIL_PASSWORD)
 
 # Default runtime configuration. The web dashboard stores live overrides
 # in runtime_config.json without modifying this file.

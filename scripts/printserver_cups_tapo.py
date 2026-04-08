@@ -17,6 +17,7 @@ from runtime_config import (
     has_auto_off_triggered_job,
     is_auto_off_disabled,
 )
+from send_mail import send_print_job_notification
 
 # Timing
 CHECK_INTERVAL = 30     # seconds between CUPS checks
@@ -38,6 +39,14 @@ def parse_printer_job(printer_job):
     if "-" not in printer_job:
         return None, None
     return printer_job.rsplit("-", 1)
+
+
+def get_job_signature(job):
+    return (
+        f"{job.get('printer', '')}-"
+        f"{job.get('job_id', '')}-"
+        f"{normalize_username(job.get('user', ''))}"
+    )
 
 
 def get_pending_jobs():
@@ -79,11 +88,7 @@ def maybe_disable_auto_off_for_allowed_users(pending_jobs):
         if normalized_user not in allowed_users:
             continue
 
-        job_signature = (
-            f"{job.get('printer', '')}-"
-            f"{job.get('job_id', '')}-"
-            f"{normalized_user}"
-        )
+        job_signature = get_job_signature(job)
         try:
             if has_auto_off_triggered_job(job_signature):
                 continue
@@ -106,6 +111,32 @@ def maybe_disable_auto_off_for_allowed_users(pending_jobs):
             return None
 
     return None
+
+
+def notify_for_new_jobs(pending_jobs, known_job_signatures):
+    current_job_signatures = {get_job_signature(job) for job in pending_jobs}
+
+    for job in pending_jobs:
+        job_signature = get_job_signature(job)
+        if job_signature in known_job_signatures:
+            continue
+
+        try:
+            sent, message = send_print_job_notification(job)
+            status = "sent" if sent else "skipped"
+            print(
+                f"[{datetime.datetime.now().strftime('%H:%M:%S')}] "
+                f"Mail notification {status} for {job.get('printer', '')}-{job.get('job_id', '')}: {message}"
+            )
+        except Exception as e:
+            print(
+                f"[{datetime.datetime.now().strftime('%H:%M:%S')}] "
+                f"Error sending mail notification for {job.get('printer', '')}-{job.get('job_id', '')}: {e}"
+            )
+        sys.stdout.flush()
+
+    known_job_signatures.clear()
+    known_job_signatures.update(current_job_signatures)
 
 
 async def turn_on(ip, printer):
@@ -173,6 +204,7 @@ async def turn_off(ip, printer):
 async def main():
     plug_status = {}
     last_job_time = {}
+    known_job_signatures = set()
 
     # Initialize plug states
     print(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] Initializing printer states...")
@@ -211,6 +243,7 @@ async def main():
         await update_plug_statuses(plug_status)
         pending_jobs = get_pending_jobs()
         maybe_disable_auto_off_for_allowed_users(pending_jobs)
+        notify_for_new_jobs(pending_jobs, known_job_signatures)
 
         now = time.time()
         for printer, ip in PRINTERS.items():

@@ -21,6 +21,8 @@ cd printserver
 
 That's it! The automated script handles everything. Then configure your printers and plugs in `config.py`. Runtime settings changed from the web dashboard are stored separately in `runtime_config.json`.
 
+For optional print job email notifications, create a local `.mail_credentials` file from `.mail_credentials.example`. That file is intentionally ignored by git.
+
 ## Supported Hardware
 
 ### Tested Printers
@@ -299,6 +301,31 @@ As a fallback, you can also set credentials via environment variables:
 - `TAPO_PASSWORD`: Your Tapo account password
 
 However, the credentials file approach is preferred for security and reliability.
+
+### Mail Notifications
+Print job notification emails are configured through a local `.mail_credentials` file in the project root.
+
+1. Create the local config:
+   ```bash
+   cp .mail_credentials.example .mail_credentials
+   chmod 600 .mail_credentials
+   ```
+
+2. Fill in your mail settings:
+   ```bash
+   MAIL_SENDER="your_email@gmail.com"
+   MAIL_RECEIVER="your_email@gmail.com"
+   MAIL_PASSWORD="your_app_password"
+   MAIL_SMTP_HOST="smtp.gmail.com"
+   MAIL_SMTP_PORT="465"
+   ```
+
+3. Restart the service after updating credentials:
+   ```bash
+   sudo systemctl restart cups-tapo
+   ```
+
+If `MAIL_SENDER`, `MAIL_RECEIVER`, or `MAIL_PASSWORD` are missing, mail notifications stay disabled and the print service continues to run normally.
 
 ### Centralized Configuration (`config.py`)
 The system uses `config.py` for static configuration such as printer mappings, credentials, and the default shutdown delay. This file is shared across all scripts for consistency.
