@@ -10,7 +10,13 @@ from kasa import Discover
 # Add parent directory to path for config import
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 from config import PRINTERS, TAPO_EMAIL, TAPO_PASSWORD
-from runtime_config import get_turn_off_delay, is_auto_off_disabled
+from runtime_config import (
+    disable_auto_off_for_job,
+    get_auto_off_disable_users,
+    get_turn_off_delay,
+    has_auto_off_triggered_job,
+    is_auto_off_disabled,
+)
 
 # Timing
 CHECK_INTERVAL = 30     # seconds between CUPS checks
@@ -22,6 +28,84 @@ def cups_queue_has_jobs(printer_name):
         ["lpstat", "-o", printer_name], capture_output=True, text=True
     )
     return bool(result.stdout.strip())
+
+
+def normalize_username(username):
+    return str(username).strip().lower()
+
+
+def parse_printer_job(printer_job):
+    if "-" not in printer_job:
+        return None, None
+    return printer_job.rsplit("-", 1)
+
+
+def get_pending_jobs():
+    jobs = []
+    try:
+        result = subprocess.run(["lpstat", "-o"], capture_output=True, text=True)
+        if result.stdout.strip():
+            for line in result.stdout.strip().splitlines():
+                parts = line.split()
+                if len(parts) < 4:
+                    continue
+                printer_name, job_id = parse_printer_job(parts[0])
+                if not printer_name or not job_id:
+                    continue
+                jobs.append(
+                    {
+                        "printer": printer_name,
+                        "job_id": job_id,
+                        "user": parts[1],
+                    }
+                )
+    except Exception as e:
+        print(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] Error getting pending jobs: {e}")
+        sys.stdout.flush()
+    return jobs
+
+
+def maybe_disable_auto_off_for_allowed_users(pending_jobs):
+    allowed_users = {
+        normalize_username(user)
+        for user in get_auto_off_disable_users()
+        if str(user).strip()
+    }
+    if not allowed_users:
+        return None
+
+    for job in pending_jobs:
+        normalized_user = normalize_username(job.get("user", ""))
+        if normalized_user not in allowed_users:
+            continue
+
+        job_signature = (
+            f"{job.get('printer', '')}-"
+            f"{job.get('job_id', '')}-"
+            f"{normalized_user}"
+        )
+        try:
+            if has_auto_off_triggered_job(job_signature):
+                continue
+            disable_auto_off_for_job(job_signature)
+            print(
+                f"[{datetime.datetime.now().strftime('%H:%M:%S')}] "
+                f"Auto-off disabled because user '{job.get('user', '')}' submitted "
+                f"job {job.get('printer', '')}-{job.get('job_id', '')}"
+            )
+            sys.stdout.flush()
+            return job
+        except ValueError:
+            return None
+        except Exception as e:
+            print(
+                f"[{datetime.datetime.now().strftime('%H:%M:%S')}] "
+                f"Error auto-disabling auto-off for {job_signature}: {e}"
+            )
+            sys.stdout.flush()
+            return None
+
+    return None
 
 
 async def turn_on(ip, printer):
@@ -125,10 +209,12 @@ async def main():
 
         # Update plug statuses with actual states
         await update_plug_statuses(plug_status)
+        pending_jobs = get_pending_jobs()
+        maybe_disable_auto_off_for_allowed_users(pending_jobs)
 
         now = time.time()
         for printer, ip in PRINTERS.items():
-            has_jobs = cups_queue_has_jobs(printer)
+            has_jobs = any(job["printer"] == printer for job in pending_jobs)
             print(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] Checking {printer}: {'jobs present' if has_jobs else 'no jobs'}")
             sys.stdout.flush()
 

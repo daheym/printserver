@@ -14,12 +14,16 @@ sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 from config import PRINTERS, TAPO_EMAIL, TAPO_PASSWORD
 from runtime_config import (
     disable_auto_off as disable_auto_off_config,
+    disable_auto_off_for_job,
     enable_auto_off as enable_auto_off_config,
     get_auto_off_disable_duration,
+    get_auto_off_disable_users,
     get_turn_off_delay,
+    has_auto_off_triggered_job,
     is_auto_off_disabled,
     load_runtime_config,
     set_turn_off_delay,
+    set_auto_off_disable_users,
 )
 
 app = Flask(__name__)
@@ -314,19 +318,28 @@ HTML_TEMPLATE = """
             const turnOffDelayInput = document.getElementById('turnOffDelay');
             const updateButton = document.querySelector('button[onclick="updateConfig()"]');
             const disableDurationLabel = currentData.config.auto_off_disable_duration_label || '2 hours';
+            const lastAutoOffTrigger = currentData.config.auto_off_last_trigger;
 
             // Update auto-off status
             const isDisabled = currentData.config.auto_off_disabled;
             if (isDisabled) {
                 autoOffStatus.className = 'auto-off-status auto-off-disabled';
-                autoOffStatus.textContent = `Auto-off is temporarily disabled for ${disableDurationLabel}`;
+                let statusText = `Auto-off is temporarily disabled for ${disableDurationLabel}`;
+                if (lastAutoOffTrigger && lastAutoOffTrigger.source === 'user_job' && lastAutoOffTrigger.user) {
+                    statusText += ` (automatically triggered by user ${lastAutoOffTrigger.user})`;
+                }
+                autoOffStatus.textContent = statusText;
                 disableBtn.textContent = 'Re-enable Auto-Off';
                 // Disable input and update button when auto-off is disabled
                 turnOffDelayInput.disabled = true;
                 updateButton.disabled = true;
             } else {
                 autoOffStatus.className = 'auto-off-status auto-off-enabled';
-                autoOffStatus.textContent = 'Auto-off is enabled';
+                let statusText = 'Auto-off is enabled';
+                if (lastAutoOffTrigger && lastAutoOffTrigger.source === 'user_job' && lastAutoOffTrigger.user) {
+                    statusText += ` (last automatic trigger: user ${lastAutoOffTrigger.user})`;
+                }
+                autoOffStatus.textContent = statusText;
                 disableBtn.textContent = `Disable Auto-Off (${disableDurationLabel})`;
                 // Enable input and update button when auto-off is enabled
                 turnOffDelayInput.disabled = false;
@@ -550,6 +563,11 @@ def parse_printer_job(printer_job):
         return None, None
     return printer_job.rsplit('-', 1)
 
+
+def normalize_username(username):
+    """Normalize usernames for config matching."""
+    return str(username).strip().lower()
+
 def get_pending_jobs():
     """Get detailed information about all pending print jobs"""
     jobs = []
@@ -609,6 +627,59 @@ def get_recent_completed_jobs(limit=3):
         print(f"Error getting completed jobs: {e}")
 
     return jobs
+
+
+def find_matching_auto_off_job(jobs, allowed_users):
+    """Return the first job that should trigger the auto-off override."""
+    if not allowed_users:
+        return None
+
+    allowed = {normalize_username(user) for user in allowed_users if str(user).strip()}
+    if not allowed:
+        return None
+
+    for job in jobs:
+        username = normalize_username(job.get('user', ''))
+        if username in allowed:
+            return job
+
+    return None
+
+
+def maybe_disable_auto_off_for_allowed_users(pending_jobs=None, recent_jobs=None):
+    """Disable auto-off once for newly seen jobs from configured users."""
+    allowed_users = get_auto_off_disable_users()
+    if not allowed_users:
+        return None
+
+    if pending_jobs is None:
+        pending_jobs = get_pending_jobs()
+
+    matching_job = find_matching_auto_off_job(pending_jobs, allowed_users)
+    if matching_job is None:
+        if recent_jobs is None:
+            recent_jobs = get_recent_completed_jobs(limit=10)
+        matching_job = find_matching_auto_off_job(recent_jobs, allowed_users)
+
+    if matching_job is None:
+        return None
+
+    job_signature = (
+        f"{matching_job.get('printer', '')}-"
+        f"{matching_job.get('job_id', '')}-"
+        f"{normalize_username(matching_job.get('user', ''))}"
+    )
+
+    try:
+        if has_auto_off_triggered_job(job_signature):
+            return None
+        disable_auto_off_for_job(job_signature)
+        return matching_job
+    except ValueError:
+        return None
+    except Exception as e:
+        print(f"Error auto-disabling auto-off for user job {job_signature}: {e}")
+        return None
 
 def get_printer_countdowns():
     """Get countdown information directly from journalctl logs"""
@@ -711,10 +782,17 @@ def index():
 def get_status():
     """Get current status of all printers"""
     now = time.time()
+    pending_jobs = get_pending_jobs()
+    recent_jobs = get_recent_completed_jobs(limit=10)
+    triggered_job = maybe_disable_auto_off_for_allowed_users(
+        pending_jobs=pending_jobs,
+        recent_jobs=recent_jobs,
+    )
     runtime_config = load_runtime_config()
     current_turn_off_delay = runtime_config['turn_off_delay']
     auto_off_disabled = runtime_config['auto_off_disabled_until'] > now
     auto_off_disable_duration = runtime_config['auto_off_disable_duration']
+    auto_off_disable_users = runtime_config.get('auto_off_disable_users', [])
 
     # Get countdowns directly from journalctl logs
     journal_countdowns = get_printer_countdowns()
@@ -759,7 +837,10 @@ def get_status():
             'actual_turn_off_delay': current_turn_off_delay,
             'auto_off_disabled': auto_off_disabled,
             'auto_off_disable_duration': auto_off_disable_duration,
-            'auto_off_disable_duration_label': format_duration_label(auto_off_disable_duration)
+            'auto_off_disable_duration_label': format_duration_label(auto_off_disable_duration),
+            'auto_off_disable_users': auto_off_disable_users,
+            'auto_off_triggered_by_user_job': triggered_job,
+            'auto_off_last_trigger': runtime_config.get('auto_off_last_trigger'),
         },
         'timestamp': now
     })
@@ -796,22 +877,35 @@ def handle_config():
         return jsonify({
             'turn_off_delay': current_delay,
             'auto_off_disabled': is_auto_off_disabled(),
-            'auto_off_disable_duration': get_auto_off_disable_duration()
+            'auto_off_disable_duration': get_auto_off_disable_duration(),
+            'auto_off_disable_users': get_auto_off_disable_users(),
         })
     elif request.method == 'POST':
-        data = request.get_json()
-        if 'turn_off_delay' in data:
-            delay = int(data['turn_off_delay'])
-            if 60 <= delay <= 3600:  # Between 1 minute and 1 hour
-                try:
+        data = request.get_json() or {}
+
+        try:
+            if 'turn_off_delay' in data:
+                delay = int(data['turn_off_delay'])
+                if 60 <= delay <= 3600:  # Between 1 minute and 1 hour
                     set_turn_off_delay(delay)
-                    return jsonify({'success': True})
-                except Exception as e:
-                    print(f"Error updating runtime config: {e}")
-                    return jsonify({'error': 'Failed to update config'}), 500
-            else:
-                return jsonify({'error': 'Invalid delay value'}), 400
-        return jsonify({'error': 'Missing turn_off_delay'}), 400
+                else:
+                    return jsonify({'error': 'Invalid delay value'}), 400
+
+            if 'auto_off_disable_users' in data:
+                users = data['auto_off_disable_users']
+                if isinstance(users, str):
+                    users = [user.strip() for user in users.split(',')]
+                elif not isinstance(users, list):
+                    return jsonify({'error': 'auto_off_disable_users must be a list or comma-separated string'}), 400
+                set_auto_off_disable_users(users)
+
+            if 'turn_off_delay' not in data and 'auto_off_disable_users' not in data:
+                return jsonify({'error': 'Missing supported config fields'}), 400
+
+            return jsonify({'success': True})
+        except Exception as e:
+            print(f"Error updating runtime config: {e}")
+            return jsonify({'error': 'Failed to update config'}), 500
 
 @app.route('/api/disable_auto_off', methods=['POST'])
 def disable_auto_off():
@@ -837,6 +931,7 @@ def enable_auto_off():
 def get_jobs():
     """Get pending print jobs"""
     jobs = get_pending_jobs()
+    maybe_disable_auto_off_for_allowed_users(pending_jobs=jobs)
     return jsonify({'jobs': jobs})
 
 @app.route('/api/jobs/<printer>/<job_id>/cancel', methods=['POST'])
@@ -854,6 +949,7 @@ def cancel_job(printer, job_id):
 def get_recent_jobs():
     """Get the most recent completed print jobs"""
     jobs = get_recent_completed_jobs(3)
+    maybe_disable_auto_off_for_allowed_users(recent_jobs=jobs)
     return jsonify({'jobs': jobs})
 
 if __name__ == '__main__':

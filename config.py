@@ -37,3 +37,7 @@ TAPO_PASSWORD = credentials.get('TAPO_PASSWORD', os.environ.get('TAPO_PASSWORD',
 # Default runtime configuration. The web dashboard stores live overrides
 # in runtime_config.json without modifying this file.
 TURN_OFF_DELAY = 600
+
+# Users in this list automatically trigger the temporary "Disable Auto-Off"
+# override when the dashboard backend sees one of their jobs in CUPS.
+AUTO_OFF_DISABLE_USERS = []

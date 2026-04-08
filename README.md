@@ -354,17 +354,23 @@ When the web dashboard changes the delay, the active value is written to `runtim
 The temporary auto-off disable window is also runtime-configurable through `runtime_config.json`:
 - `auto_off_disable_duration`: How many seconds the "Disable Auto-Off" action should last (default: `7200`)
 - `auto_off_disabled_until`: Absolute Unix timestamp until which auto-off remains disabled
+- `auto_off_disable_users`: Lowercase CUPS usernames that should automatically trigger the same temporary disable window
 
 Example `runtime_config.json` content:
 ```json
 {
   "auto_off_disable_duration": 7200,
   "auto_off_disabled_until": 0,
+  "auto_off_disable_users": ["alice", "bob"],
   "turn_off_delay": 600
 }
 ```
 
 `runtime_config.json` is intended as a local runtime-state file and is a good candidate for `.gitignore`, since the dashboard updates it frequently during normal use. Please create this file in your project folder, otherwise the defaults from `config.py` will be used as fallback. 
+
+If you prefer to keep the default user allowlist in code, you can also edit `AUTO_OFF_DISABLE_USERS` in `config.py`. The runtime file overrides that default once present.
+
+The internal deduplication history for automatically triggered jobs is stored separately in `auto_off_triggered_jobs.json`, which is also ignored by git.
 
 ### Energy Monitoring
 The system includes built-in energy consumption tracking for Tapo plugs that support energy monitoring:
@@ -422,6 +428,7 @@ The dashboard will then be available at `http://localhost:5000` and start automa
 - **Manual Plug Control**: Turn printers on/off manually
 - **Countdown Timer**: Adjust the auto-shutoff delay (1-60 minutes)
 - **Temporary Override**: Disable auto-shutoff for the configured runtime window (default: 2 hours, automatically reverts)
+- **User-Based Override**: Automatically disable auto-off when configured CUPS users submit jobs
 
 ### Manual Execution
 Run the automated print server:
@@ -504,6 +511,7 @@ python scripts/test_iotplug.py
 - `config.py`: Static configuration for printer mappings, credentials, and default delay
 - `runtime_config.py`: Shared helper for reading and writing dashboard-managed runtime settings
 - `runtime_config.json`: Auto-generated runtime state file for live dashboard overrides
+- `auto_off_triggered_jobs.json`: Auto-generated local history used to avoid retriggering the same job repeatedly
 
 ### Scripts
 - `scripts/printserver_cups_tapo.py`: Main service that monitors CUPS queues and controls plugs
