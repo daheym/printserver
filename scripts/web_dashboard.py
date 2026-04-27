@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 import asyncio
 import datetime
+import glob
+import gzip
 import json
 import os
 import subprocess
@@ -436,7 +438,7 @@ HTML_TEMPLATE = """
                             <div class="job-printer">${job.printer}</div>
                             <div class="job-details">
                                 Job #${job.job_id} by <span class="job-user">${job.user}</span><br>
-                                ${job.completed_at}${job.size ? ` - ${job.size}` : ''}
+                                ${job.completed_at}${job.size ? ` - ${job.size}` : ''}${job.pages ? ` - ${job.pages} page${job.pages === 1 ? '' : 's'}` : ''}
                             </div>
                         </div>
                     `;
@@ -568,6 +570,53 @@ def normalize_username(username):
     """Normalize usernames for config matching."""
     return str(username).strip().lower()
 
+
+def format_job_size(num_bytes):
+    """Convert a raw byte count into a human-readable size string."""
+    try:
+        size = int(num_bytes)
+    except (TypeError, ValueError):
+        return None
+
+    units = ["bytes", "KB", "MB", "GB", "TB"]
+    value = float(size)
+
+    for unit in units:
+        if unit == "bytes":
+            if size == 1:
+                return "1 byte"
+            if size < 1024:
+                return f"{size} bytes"
+        elif value < 1024 or unit == units[-1]:
+            return f"{value:.1f} {unit}"
+
+        value /= 1024
+
+    return f"{size} bytes"
+
+
+def get_completed_job_page_counts(job_keys):
+    """Read CUPS page logs and count printed pages for the requested jobs."""
+    page_counts = {key: 0 for key in job_keys}
+    page_log_paths = sorted(glob.glob("/var/log/cups/page_log*"))
+
+    for path in page_log_paths:
+        try:
+            opener = gzip.open if path.endswith(".gz") else open
+            with opener(path, "rt", encoding="utf-8", errors="replace") as handle:
+                for line in handle:
+                    parts = line.strip().split()
+                    if len(parts) < 3:
+                        continue
+
+                    key = (parts[0], parts[2])
+                    if key in page_counts:
+                        page_counts[key] += 1
+        except OSError:
+            continue
+
+    return page_counts
+
 def get_pending_jobs():
     """Get detailed information about all pending print jobs"""
     jobs = []
@@ -620,9 +669,19 @@ def get_recent_completed_jobs(limit=3):
                             'printer': printer_name,
                             'job_id': job_id,
                             'user': parts[1],
-                            'size': f"{parts[2]} bytes",
+                            'size': format_job_size(parts[2]),
                             'completed_at': ' '.join(parts[3:])
                         })
+
+            if jobs:
+                page_counts = get_completed_job_page_counts({
+                    (job['printer'], job['job_id']) for job in jobs
+                })
+
+                for job in jobs:
+                    pages = page_counts.get((job['printer'], job['job_id']))
+                    if pages:
+                        job['pages'] = pages
     except Exception as e:
         print(f"Error getting completed jobs: {e}")
 
