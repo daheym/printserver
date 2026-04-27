@@ -205,6 +205,7 @@ async def main():
     plug_status = {}
     last_job_time = {}
     known_job_signatures = set()
+    auto_off_was_disabled = is_auto_off_disabled()
 
     # Initialize plug states
     print(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] Initializing printer states...")
@@ -246,6 +247,20 @@ async def main():
         notify_for_new_jobs(pending_jobs, known_job_signatures)
 
         now = time.time()
+        current_auto_off_disabled = is_auto_off_disabled(now)
+        if auto_off_was_disabled and not current_auto_off_disabled:
+            current_turn_off_delay = get_turn_off_delay()
+            for printer in PRINTERS:
+                has_jobs = any(job["printer"] == printer for job in pending_jobs)
+                if plug_status.get(printer, False) and not has_jobs:
+                    last_job_time[printer] = now
+                    print(
+                        f"[{datetime.datetime.now().strftime('%H:%M:%S')}] "
+                        f"{printer}: Auto-off re-enabled, starting {current_turn_off_delay}s countdown"
+                    )
+                    sys.stdout.flush()
+        auto_off_was_disabled = current_auto_off_disabled
+
         for printer, ip in PRINTERS.items():
             has_jobs = any(job["printer"] == printer for job in pending_jobs)
             print(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] Checking {printer}: {'jobs present' if has_jobs else 'no jobs'}")
@@ -260,7 +275,7 @@ async def main():
                 # Read the latest runtime config so dashboard updates apply live.
                 current_turn_off_delay = get_turn_off_delay()
 
-                if is_auto_off_disabled(now):
+                if current_auto_off_disabled:
                     print(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] {printer}: Auto-off is disabled, keeping printer ON")
                     sys.stdout.flush()
                     continue
