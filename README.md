@@ -89,7 +89,12 @@ CUPS (Common Unix Printing System) must be installed and configured for network 
    MaxJobs 25
    PreserveJobHistory Yes
    PreserveJobFiles Yes
+
+   # Required for dashboard page counts in "Last Completed Jobs"
+   PageLogFormat "%p %u %j %T %P %C %{job-billing} %{job-originating-host-name} %{job-name} %{media} %{sides}"
    ```
+
+   `PageLogFormat` is important if you want the web dashboard to show printed page counts for completed jobs. Without it, CUPS keeps the completed-job history, but it does not write the page log entries the dashboard reads.
 
 4. Restart CUPS service:
    ```bash
@@ -452,10 +457,13 @@ The dashboard will then be available at `http://localhost:5000` and start automa
 **Features:**
 - **Monitor Print Jobs**: Real-time status of all configured printers
 - **View Pending Jobs**: Detailed list of all queued print jobs with user and file information
+- **Recent Completed Jobs**: Shows completion time, human-readable job size, and page count when CUPS page logging is enabled
 - **Manual Plug Control**: Turn printers on/off manually
 - **Countdown Timer**: Adjust the auto-shutoff delay (1-60 minutes)
 - **Temporary Override**: Disable auto-shutoff for the configured runtime window (default: 2 hours, automatically reverts)
 - **User-Based Override**: Automatically disable auto-off when configured CUPS users submit jobs
+
+Page counts in the dashboard depend on CUPS page logging being enabled via `PageLogFormat` in `/etc/cups/cupsd.conf`. Existing jobs are not backfilled, so counts appear for jobs completed after that setting is enabled and CUPS is restarted.
 
 ### Manual Execution
 Run the automated print server:

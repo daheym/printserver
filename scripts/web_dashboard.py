@@ -320,6 +320,7 @@ HTML_TEMPLATE = """
             const turnOffDelayInput = document.getElementById('turnOffDelay');
             const updateButton = document.querySelector('button[onclick="updateConfig()"]');
             const disableDurationLabel = currentData.config.auto_off_disable_duration_label || '2 hours';
+            const autoOffDisabledRemaining = currentData.config.auto_off_disabled_remaining || 0;
             const lastAutoOffTrigger = currentData.config.auto_off_last_trigger;
 
             // Update auto-off status
@@ -363,12 +364,24 @@ HTML_TEMPLATE = """
                 const hasJobs = data.has_jobs;
                 const isOn = data.plug_status;
                 const countdown = data.countdown_remaining;
+                const autoOffDisabled = currentData.config.auto_off_disabled;
 
                 let statusText = '';
                 let countdownInfo = '';
 
                 if (isOn) {
-                    if (hasJobs) {
+                    if (autoOffDisabled) {
+                        statusText = hasJobs
+                            ? '<span class="status-indicator status-jobs"></span>Active (jobs present)'
+                            : '<span class="status-indicator status-on"></span>On';
+                        const hours = Math.floor(autoOffDisabledRemaining / 3600);
+                        const minutes = Math.floor((autoOffDisabledRemaining % 3600) / 60);
+                        const seconds = Math.floor(autoOffDisabledRemaining % 60);
+                        const timeParts = hours > 0
+                            ? `${hours}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`
+                            : `${minutes}:${seconds.toString().padStart(2, '0')}`;
+                        countdownInfo = `<div class="countdown">Auto-off resumes in ${timeParts}</div>`;
+                    } else if (hasJobs) {
                         statusText = '<span class="status-indicator status-jobs"></span>Active (jobs present)';
                         countdownInfo = '<div class="countdown">Will shut down after jobs complete</div>';
                     } else if (countdown > 0) {
@@ -849,7 +862,9 @@ def get_status():
     )
     runtime_config = load_runtime_config()
     current_turn_off_delay = runtime_config['turn_off_delay']
-    auto_off_disabled = runtime_config['auto_off_disabled_until'] > now
+    auto_off_disabled_until = runtime_config['auto_off_disabled_until']
+    auto_off_disabled = auto_off_disabled_until > now
+    auto_off_disabled_remaining = max(0, int(auto_off_disabled_until - now))
     auto_off_disable_duration = runtime_config['auto_off_disable_duration']
     auto_off_disable_users = runtime_config.get('auto_off_disable_users', [])
 
@@ -895,6 +910,8 @@ def get_status():
             'turn_off_delay': current_turn_off_delay,
             'actual_turn_off_delay': current_turn_off_delay,
             'auto_off_disabled': auto_off_disabled,
+            'auto_off_disabled_remaining': auto_off_disabled_remaining,
+            'auto_off_disabled_until': auto_off_disabled_until,
             'auto_off_disable_duration': auto_off_disable_duration,
             'auto_off_disable_duration_label': format_duration_label(auto_off_disable_duration),
             'auto_off_disable_users': auto_off_disable_users,
