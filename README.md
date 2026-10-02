@@ -325,6 +325,9 @@ Print job notification emails are configured through a local `.mail_credentials`
    MAIL_SMTP_PORT="465"
    ```
 
+   Port `465` uses implicit TLS. Port `587` uses STARTTLS (for example,
+   `smtp.mail.de` with port `587`).
+
 3. Restart the service after updating credentials:
    ```bash
    sudo systemctl restart cups-tapo

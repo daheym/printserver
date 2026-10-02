@@ -2,6 +2,7 @@
 import datetime
 import os
 import smtplib
+import ssl
 import sys
 from email.mime.text import MIMEText
 
@@ -43,9 +44,21 @@ def send_mail(subject, body):
     msg["From"] = MAIL_SENDER
     msg["To"] = MAIL_RECEIVER
 
-    with smtplib.SMTP_SSL(MAIL_SMTP_HOST, MAIL_SMTP_PORT) as server:
-        server.login(MAIL_SENDER, MAIL_PASSWORD)
-        server.send_message(msg)
+    tls_context = ssl.create_default_context()
+
+    if MAIL_SMTP_PORT == 465:
+        with smtplib.SMTP_SSL(
+            MAIL_SMTP_HOST, MAIL_SMTP_PORT, context=tls_context
+        ) as server:
+            server.login(MAIL_SENDER, MAIL_PASSWORD)
+            server.send_message(msg)
+    else:
+        with smtplib.SMTP(MAIL_SMTP_HOST, MAIL_SMTP_PORT) as server:
+            server.ehlo()
+            server.starttls(context=tls_context)
+            server.ehlo()
+            server.login(MAIL_SENDER, MAIL_PASSWORD)
+            server.send_message(msg)
 
     return True, "email sent"
 
